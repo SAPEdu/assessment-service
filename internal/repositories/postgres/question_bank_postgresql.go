@@ -315,7 +315,6 @@ func (r *questionBankRepository) GetBankQuestions(ctx context.Context, tx *gorm.
 
 	query := db.WithContext(ctx).
 		Table("questions q").
-		Select("q.*").
 		Joins("INNER JOIN question_bank_questions qbq ON q.id = qbq.question_id").
 		Where("qbq.question_bank_id = ?", bankID).
 		Preload("Category").
@@ -340,7 +339,7 @@ func (r *questionBankRepository) GetBankQuestions(ctx context.Context, tx *gorm.
 	// Apply pagination and sorting
 	query = r.applyQuestionPaginationAndSorting(query, filters.Limit, filters.Offset, filters.SortBy, filters.SortOrder)
 
-	if err := query.Find(&questions).Error; err != nil {
+	if err := query.Select("q.*").Find(&questions).Error; err != nil {
 		return nil, 0, r.handleDBError(err, "get bank questions")
 	}
 
@@ -661,10 +660,10 @@ func (r *questionBankRepository) applyQuestionPaginationAndSorting(query *gorm.D
 	// Whitelist allowed sort columns for questions
 	// Map logical API sort keys (must match handler) to SQL-safe column names
 	sortKeyToColumn := map[string]string{
-		"created_at":  "q.created_at",
-		"updated_at":  "q.updated_at",
-		"difficulty":  "q.difficulty",
-		"type":        "q.type",
+		"created_at": "q.created_at",
+		"updated_at": "q.updated_at",
+		"difficulty": "q.difficulty",
+		"type":       "q.type",
 	}
 
 	column, ok := sortKeyToColumn[sortBy]
