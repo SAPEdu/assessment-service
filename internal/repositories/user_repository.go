@@ -16,6 +16,6 @@ type UserRepository interface {
 	// Validation and checks
 	ExistsByID(ctx context.Context, id string) (bool, error)
 	ExistsByEmail(ctx context.Context, email string) (bool, error)
-	IsActive(ctx context.Context, id string) (bool, error)
+	// IsActive(ctx context.Context, id string) (bool, error)
 	HasRole(ctx context.Context, id string, role models.UserRole) (bool, error)
 }

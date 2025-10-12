@@ -137,19 +137,19 @@ func (u *UserCasdoor) convertCasdoorUserToModel(casdoorUser *casdoorsdk.User) *m
 		updatedAt, _ = time.Parse(time.RFC3339, casdoorUser.UpdatedTime)
 	}
 
-	// Parse last login
-	var lastLoginAt *time.Time
-	if casdoorUser.LastSigninTime != "" {
-		if parsed, err := time.Parse(time.RFC3339, casdoorUser.LastSigninTime); err == nil {
-			lastLoginAt = &parsed
-		}
-	}
+	//// Parse last login
+	//var lastLoginAt *time.Time
+	//if casdoorUser.LastSigninTime != "" {
+	//	if parsed, err := time.Parse(time.RFC3339, casdoorUser.LastSigninTime); err == nil {
+	//		lastLoginAt = &parsed
+	//	}
+	//}
 
 	// Convert preferences from map to JSON
-	var preferences []byte
-	if len(casdoorUser.Properties) > 0 {
-		preferences, _ = json.Marshal(casdoorUser.Properties)
-	}
+	//var preferences []byte
+	//if len(casdoorUser.Properties) > 0 {
+	//	preferences, _ = json.Marshal(casdoorUser.Properties)
+	//}
 
 	return &models.User{
 		ID:            id,
@@ -157,15 +157,7 @@ func (u *UserCasdoor) convertCasdoorUserToModel(casdoorUser *casdoorsdk.User) *m
 		Email:         casdoorUser.Email,
 		Role:          u.convertCasdoorRolesToModel(casdoorUser.Roles),
 		AvatarURL:     &casdoorUser.Avatar,
-		PhoneNumber:   &casdoorUser.Phone,
-		Organization:  &casdoorUser.Affiliation,
-		Department:    nil, // Map from properties if available
-		Timezone:      u.getPropertyOrDefault(casdoorUser.Properties, "timezone", "UTC"),
-		Language:      u.getPropertyOrDefault(casdoorUser.Properties, "language", "en"),
-		Preferences:   preferences,
-		IsActive:      !casdoorUser.IsForbidden,
 		EmailVerified: casdoorUser.EmailVerified,
-		LastLoginAt:   lastLoginAt,
 		CreatedAt:     createdAt,
 		UpdatedAt:     updatedAt,
 	}
@@ -366,14 +358,15 @@ func (u *UserCasdoor) ExistsByEmail(ctx context.Context, email string) (bool, er
 	return exists, nil
 }
 
-// IsActive checks if a user is active
-func (u *UserCasdoor) IsActive(ctx context.Context, id string) (bool, error) {
-	user, err := u.GetByID(ctx, id)
-	if err != nil {
-		return false, err
-	}
-	return user.IsActive, nil
-}
+//
+//// IsActive checks if a user is active
+//func (u *UserCasdoor) IsActive(ctx context.Context, id string) (bool, error) {
+//	user, err := u.GetByID(ctx, id)
+//	if err != nil {
+//		return false, err
+//	}
+//	return user.IsActive, nil
+//}
 
 // HasRole checks if a user has a specific role
 func (u *UserCasdoor) HasRole(ctx context.Context, id string, role models.UserRole) (bool, error) {

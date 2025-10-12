@@ -3,7 +3,6 @@ package models
 import (
 	"time"
 
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -24,20 +23,12 @@ type User struct {
 	Role     UserRole `json:"role" gorm:"-"`
 
 	// Profile info
-	AvatarURL    *string `json:"avatar_url" gorm:"size:500"`
-	PhoneNumber  *string `json:"phone_number" gorm:"size:20"`
-	Organization *string `json:"organization" gorm:"-"`
-	Department   *string `json:"department" gorm:"-"`
+	AvatarURL *string `json:"avatar_url" gorm:"size:500"`
 
 	// Settings
-	Timezone    string         `json:"timezone" gorm:"-"`
-	Language    string         `json:"language" gorm:"default:en;size:10"`
-	Preferences datatypes.JSON `json:"preferences" gorm:"-"`
 
 	// Status
-	IsActive      bool       `json:"is_active" gorm:"default:true"`
-	EmailVerified bool       `json:"email_verified" gorm:"default:false"`
-	LastLoginAt   *time.Time `json:"last_login_at"`
+	EmailVerified bool `json:"email_verified" gorm:"default:false"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

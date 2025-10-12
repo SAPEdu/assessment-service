@@ -234,17 +234,17 @@ func (cam *CasdoorAuthMiddleware) createUserFromClaims(claims *casdoorsdk.Claims
 	role := cam.mapCasdoorRoleToUserRole(claims.User.Type)
 
 	return &models.User{
-		ID:            userID,
-		FullName:      fullName,
-		Email:         email,
-		Role:          role,
-		AvatarURL:     &avatarURL,
-		IsActive:      true,
+		ID:        userID,
+		FullName:  fullName,
+		Email:     email,
+		Role:      role,
+		AvatarURL: &avatarURL,
+		//IsActive:      true,
 		EmailVerified: true,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
-		Timezone:      "UTC",
-		Language:      "en",
+		//Timezone:      "UTC",
+		//Language:      "en",
 	}
 }
 
