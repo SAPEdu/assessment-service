@@ -307,7 +307,7 @@ func (c *CacheHelper) CacheOrExecute(ctx context.Context, key string, dest inter
 
 	if err != ErrCacheNotFound && err != ErrCacheNotAvailable {
 		// Cache error occurred but continue with fetch
-		// TODO: Add proper logging here
+		slog.Info("Cache get error, proceeding to fetch", "error", err, "key", key)
 	}
 
 	// Execute fetch function
@@ -322,7 +322,7 @@ func (c *CacheHelper) CacheOrExecute(ctx context.Context, key string, dest inter
 		ctxBg, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := c.Set(ctxBg, key, value, ttl); err != nil {
-			// TODO: Add proper logging here
+			slog.Error("Cache set error", "error", err, "key", key)
 		}
 	}()
 
