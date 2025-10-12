@@ -317,14 +317,14 @@ func (c *CacheHelper) CacheOrExecute(ctx context.Context, key string, dest inter
 	}
 
 	// Store in cache asynchronously to not block the response
-	go func() {
-		// Use background context with timeout
-		ctxBg, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	go func(parentCtx context.Context) {
+		// Use parent context with timeout
+		ctxWithTimeout, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 		defer cancel()
-		if err := c.Set(ctxBg, key, value, ttl); err != nil {
+		if err := c.Set(ctxWithTimeout, key, value, ttl); err != nil {
 			slog.Error("Cache set error", "error", err, "key", key)
 		}
-	}()
+	}(ctx)
 
 	// Set the result to destination directly without re-marshaling
 	data, err := json.Marshal(value)
