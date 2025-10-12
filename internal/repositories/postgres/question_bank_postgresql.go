@@ -623,27 +623,28 @@ func (r *questionBankRepository) applyBankFilters(query *gorm.DB, filters reposi
 }
 
 func (r *questionBankRepository) applyPaginationAndSorting(query *gorm.DB, limit, offset int, sortBy, sortOrder string) *gorm.DB {
-	// Whitelist allowed sort columns
-	allowedSortColumns := map[string]bool{
-		"created_at": true,
-		"updated_at": true,
-		"name":       true,
-		"id":         true,
+	// Whitelist allowed sort columns: map API keys to SQL identifiers
+	sortKeyToColumn := map[string]string{
+		"created_at": "created_at",
+		"updated_at": "updated_at",
+		"name":       "name",
+		"id":         "id",
 	}
 
-	// Validate and set sort column
-	if sortBy == "" || !allowedSortColumns[sortBy] {
-		sortBy = "created_at"
+	// Validate and set sort column (map API to SQL name, default if invalid)
+	column, ok := sortKeyToColumn[sortBy]
+	if !ok {
+		column = "created_at"
 	}
 
 	// Validate and set sort order
-	if sortOrder != "asc" && sortOrder != "ASC" {
-		sortOrder = "DESC"
-	} else {
-		sortOrder = "ASC"
+	order := "DESC"
+	if sortOrder == "asc" || sortOrder == "ASC" {
+		order = "ASC"
 	}
 
-	query = query.Order(sortBy + " " + sortOrder)
+	// Use only mapped SQL column name and constant sort order
+	query = query.Order(fmt.Sprintf("%s %s", column, order))
 
 	// Apply pagination
 	if limit > 0 {
