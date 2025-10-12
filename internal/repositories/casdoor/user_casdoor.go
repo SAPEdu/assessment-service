@@ -101,20 +101,6 @@ func (u *UserCasdoor) setUserCache(ctx context.Context, key string, user *models
 	return u.redis.Set(ctx, cacheKey, data, u.cacheTTL).Err()
 }
 
-// invalidateUserCache removes user from cache
-func (u *UserCasdoor) invalidateUserCache(ctx context.Context, keys ...string) error {
-	if u.redis == nil {
-		return nil
-	}
-
-	cacheKeys := make([]string, len(keys))
-	for i, key := range keys {
-		cacheKeys[i] = u.getCacheKey(key)
-	}
-
-	return u.redis.Del(ctx, cacheKeys...).Err()
-}
-
 // ===== CONVERSION METHODS =====
 
 // convertCasdoorUserToModel converts Casdoor user to internal model
@@ -155,7 +141,7 @@ func (u *UserCasdoor) convertCasdoorUserToModel(casdoorUser *casdoorsdk.User) *m
 		ID:            id,
 		FullName:      casdoorUser.DisplayName,
 		Email:         casdoorUser.Email,
-		Role:          u.convertCasdoorRolesToModel(casdoorUser.Roles),
+		Role:          u.convertCasdoorRolesToModel(casdoorUser),
 		AvatarURL:     &casdoorUser.Avatar,
 		EmailVerified: casdoorUser.EmailVerified,
 		CreatedAt:     createdAt,
@@ -163,10 +149,10 @@ func (u *UserCasdoor) convertCasdoorUserToModel(casdoorUser *casdoorsdk.User) *m
 	}
 }
 
-func (u *UserCasdoor) convertCasdoorRolesToModel(casdoorRoles []*casdoorsdk.Role) models.UserRole {
+func (u *UserCasdoor) convertCasdoorRolesToModel(casdoorRoles *casdoorsdk.User) models.UserRole {
 	var roles []models.UserRole
 	isExist := make(map[models.UserRole]bool)
-	for _, casdoorRole := range casdoorRoles {
+	for _, casdoorRole := range casdoorRoles.Roles {
 		mappedRole := u.mapSingleCasdoorRoleToUserRole(casdoorRole.Name)
 		if !isExist[mappedRole] {
 			roles = append(roles, mappedRole)
@@ -176,7 +162,7 @@ func (u *UserCasdoor) convertCasdoorRolesToModel(casdoorRoles []*casdoorsdk.Role
 
 	// Ensure at least one role
 	// if contain admin, only keep admin
-	if slices.Contains(roles, models.RoleAdmin) {
+	if slices.Contains(roles, models.RoleAdmin) || casdoorRoles.IsAdmin {
 		return models.RoleAdmin
 	}
 
@@ -325,7 +311,7 @@ func (u *UserCasdoor) ExistsByID(ctx context.Context, id string) (bool, error) {
 
 	// Cache the result for a shorter time
 	if u.redis != nil {
-		u.redis.Set(ctx, cacheKey, fmt.Sprintf("%t", exists), 5*time.Minute)
+		u.redis.Set(ctx, cacheKey, fmt.Sprintf("%t", exists), 1*time.Minute)
 	}
 
 	return exists, nil
@@ -352,7 +338,7 @@ func (u *UserCasdoor) ExistsByEmail(ctx context.Context, email string) (bool, er
 
 	// Cache the result
 	if u.redis != nil {
-		u.redis.Set(ctx, cacheKey, fmt.Sprintf("%t", exists), 5*time.Minute)
+		u.redis.Set(ctx, cacheKey, fmt.Sprintf("%t", exists), 1*time.Minute)
 	}
 
 	return exists, nil
@@ -375,4 +361,62 @@ func (u *UserCasdoor) HasRole(ctx context.Context, id string, role models.UserRo
 		return false, err
 	}
 	return role == user.Role, nil
+}
+
+// ===== LIST AND SEARCH OPERATIONS =====
+
+// List retrieves a paginated list of users with optional filters
+func (u *UserCasdoor) List(ctx context.Context, filters repositories.UserFilters) ([]*models.User, int64, error) {
+	// Set defaults
+	if filters.Limit <= 0 {
+		filters.Limit = 10
+	}
+	if filters.Limit > 100 {
+		filters.Limit = 100
+	}
+
+	// Calculate page number from offset (Casdoor uses 1-indexed pages)
+	page := (filters.Offset / filters.Limit) + 1
+	if page < 1 {
+		page = 1
+	}
+
+	// Build query map for Casdoor filtering
+	queryMap := make(map[string]string)
+
+	// Add search query if provided
+	if filters.Query != "" {
+		// Casdoor will search in name and email fields
+		queryMap["field"] = "email"
+		queryMap["value"] = filters.Query
+	}
+
+	// Get paginated users from Casdoor
+	casdoorUsers, count, err := u.client.GetPaginationUsers(page, filters.Limit, queryMap)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get users from Casdoor: %w", err)
+	}
+
+	// Convert to internal model
+	users := make([]*models.User, 0, len(casdoorUsers))
+	for _, casdoorUser := range casdoorUsers {
+		user := u.convertCasdoorUserToModel(casdoorUser)
+		if user != nil {
+			users = append(users, user)
+
+			// Cache each user
+			cacheKey := fmt.Sprintf("id:%s", user.ID)
+			u.setUserCache(ctx, cacheKey, user)
+			u.setUserCache(ctx, fmt.Sprintf("email:%s", user.Email), user)
+		}
+	}
+
+	return users, int64(count), nil
+}
+
+// Search searches for users by query string
+func (u *UserCasdoor) Search(ctx context.Context, query string, filters repositories.UserFilters) ([]*models.User, int64, error) {
+	// Set query in filters and use List method
+	filters.Query = query
+	return u.List(ctx, filters)
 }

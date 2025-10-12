@@ -250,8 +250,8 @@ func (h *QuestionBankHandler) DeleteQuestionBank(c *gin.Context) {
 // @Param is_shared query bool false "Filter by shared banks"
 // @Param created_by query int false "Filter by creator ID"
 // @Param name query string false "Filter by bank name (partial match)"
-// @Param limit query int false "Number of results to return (default: 10)"
-// @Param offset query int false "Number of results to skip (default: 0)"
+// @Param page query int false "Page number (default: 1)"
+// @Param size query int false "Page size (default: 10, max: 100)"
 // @Param sort_by query string false "Sort field (name, created_at) (default: created_at)"
 // @Param sort_order query string false "Sort order (asc, desc) (default: desc)"
 // @Success 200 {object} services.QuestionBankListResponse
@@ -285,8 +285,8 @@ func (h *QuestionBankHandler) ListQuestionBanks(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param name query string false "Filter by bank name (partial match)"
-// @Param limit query int false "Number of results to return (default: 10)"
-// @Param offset query int false "Number of results to skip (default: 0)"
+// @Param page query int false "Page number (default: 1)"
+// @Param size query int false "Page size (default: 10, max: 100)"
 // @Param sort_by query string false "Sort field (name, created_at) (default: created_at)"
 // @Param sort_order query string false "Sort order (asc, desc) (default: desc)"
 // @Success 200 {object} services.QuestionBankListResponse
@@ -311,8 +311,8 @@ func (h *QuestionBankHandler) GetPublicQuestionBanksOLD(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param name query string false "Filter by bank name (partial match)"
-// @Param limit query int false "Number of results to return (default: 10)"
-// @Param offset query int false "Number of results to skip (default: 0)"
+// @Param page query int false "Page number (default: 1)"
+// @Param size query int false "Page size (default: 10, max: 100)"
 // @Param sort_by query string false "Sort field (name, created_at) (default: created_at)"
 // @Param sort_order query string false "Sort order (asc, desc) (default: desc)"
 // @Success 200 {object} services.QuestionBankListResponse
@@ -349,8 +349,8 @@ func (h *QuestionBankHandler) GetSharedQuestionBanksOLD(c *gin.Context) {
 // @Param is_public query bool false "Filter by public banks"
 // @Param is_shared query bool false "Filter by shared banks"
 // @Param created_by query int false "Filter by creator ID"
-// @Param limit query int false "Number of results to return (default: 10)"
-// @Param offset query int false "Number of results to skip (default: 0)"
+// @Param page query int false "Page number (default: 1)"
+// @Param size query int false "Page size (default: 10, max: 100)"
 // @Param sort_by query string false "Sort field (name, created_at) (default: created_at)"
 // @Param sort_order query string false "Sort order (asc, desc) (default: desc)"
 // @Success 200 {object} services.QuestionBankListResponse
@@ -702,8 +702,8 @@ func (h *QuestionBankHandler) RemoveQuestionsFromBank(c *gin.Context) {
 // @Param type query string false "Filter by question type"
 // @Param difficulty query string false "Filter by difficulty level"
 // @Param category_id query int false "Filter by category ID"
-// @Param limit query int false "Number of results to return (default: 10)"
-// @Param offset query int false "Number of results to skip (default: 0)"
+// @Param page query int false "Page number (default: 1)"
+// @Param size query int false "Page size (default: 10, max: 100)"
 // @Param sort_by query string false "Sort field (created_at, text) (default: created_at)"
 // @Param sort_order query string false "Sort order (asc, desc) (default: desc)"
 // @Success 200 {object} services.QuestionListResponse
@@ -974,9 +974,24 @@ func (h *QuestionBankHandler) GetQuestionBanksByCreator(c *gin.Context) {
 // ===== HELPER METHODS =====
 
 func (h *QuestionBankHandler) parseQuestionBankFilters(c *gin.Context) repositories.QuestionBankFilters {
+	page := 1
+	size := 10
+
+	if pageStr := c.Query("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	if sizeStr := c.Query("size"); sizeStr != "" {
+		if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 && s <= 100 {
+			size = s
+		}
+	}
+
 	filters := repositories.QuestionBankFilters{
-		Limit:     10, // default
-		Offset:    0,  // default
+		Limit:     size,
+		Offset:    (page - 1) * size,
 		SortBy:    "created_at",
 		SortOrder: "desc",
 	}
@@ -1008,19 +1023,6 @@ func (h *QuestionBankHandler) parseQuestionBankFilters(c *gin.Context) repositor
 		filters.Name = &name
 	}
 
-	// Parse pagination
-	if limit := c.Query("limit"); limit != "" {
-		if l, err := strconv.Atoi(limit); err == nil && l > 0 && l <= 100 {
-			filters.Limit = l
-		}
-	}
-
-	if offset := c.Query("offset"); offset != "" {
-		if o, err := strconv.Atoi(offset); err == nil && o >= 0 {
-			filters.Offset = o
-		}
-	}
-
 	// Parse sorting
 	if sortBy := c.Query("sort_by"); sortBy != "" {
 		// Validate sort field
@@ -1044,9 +1046,25 @@ func (h *QuestionBankHandler) parseQuestionBankFilters(c *gin.Context) repositor
 }
 
 func (h *QuestionBankHandler) parseQuestionFilters(c *gin.Context) repositories.QuestionFilters {
+	// Parse pagination using page and size (not limit and offset)
+	page := 1
+	size := 10
+
+	if pageStr := c.Query("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	if sizeStr := c.Query("size"); sizeStr != "" {
+		if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 && s <= 100 {
+			size = s
+		}
+	}
+
 	filters := repositories.QuestionFilters{
-		Limit:     10, // default
-		Offset:    0,  // default
+		Limit:     size,
+		Offset:    (page - 1) * size,
 		SortBy:    "created_at",
 		SortOrder: "desc",
 	}
@@ -1067,19 +1085,6 @@ func (h *QuestionBankHandler) parseQuestionFilters(c *gin.Context) repositories.
 	if categoryID := c.Query("category_id"); categoryID != "" {
 		if id, err := strconv.ParseUint(categoryID, 10, 32); err == nil {
 			filters.CategoryID = &[]uint{uint(id)}[0]
-		}
-	}
-
-	// Parse pagination
-	if limit := c.Query("limit"); limit != "" {
-		if l, err := strconv.Atoi(limit); err == nil && l > 0 && l <= 100 {
-			filters.Limit = l
-		}
-	}
-
-	if offset := c.Query("offset"); offset != "" {
-		if o, err := strconv.Atoi(offset); err == nil && o >= 0 {
-			filters.Offset = o
 		}
 	}
 

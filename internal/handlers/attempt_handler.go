@@ -352,7 +352,7 @@ func (h *AttemptHandler) ListAttempts(c *gin.Context) {
 		return
 	}
 
-	page := (filters.Offset / filters.Limit) + 1
+	page := (filters.Offset / max(filters.Limit, 1)) + 1
 	response := map[string]interface{}{
 		"attempts": attempts,
 		"total":    total,
@@ -391,7 +391,7 @@ func (h *AttemptHandler) GetAttemptsByStudent(c *gin.Context) {
 		return
 	}
 
-	page := (filters.Offset / filters.Limit) + 1
+	page := (filters.Offset / max(filters.Limit, 1)) + 1
 	response := map[string]interface{}{
 		"attempts": attempts,
 		"total":    total,
@@ -438,7 +438,7 @@ func (h *AttemptHandler) GetAttemptsByAssessment(c *gin.Context) {
 		return
 	}
 
-	page := (filters.Offset / filters.Limit) + 1
+	page := (filters.Offset / max(filters.Limit, 1)) + 1
 	response := map[string]interface{}{
 		"attempts": attempts,
 		"total":    total,

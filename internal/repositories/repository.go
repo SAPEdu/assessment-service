@@ -24,6 +24,9 @@ type Repository interface {
 	// User domain (read-only for assessment service)
 	User() UserRepository
 
+	// Dashboard domain
+	Dashboard() DashboardRepository
+
 	// Transaction support
 	WithTransaction(ctx context.Context, fn func(Repository) error) error
 

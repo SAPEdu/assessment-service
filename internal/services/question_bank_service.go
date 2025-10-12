@@ -218,7 +218,7 @@ func (s *questionBankService) List(ctx context.Context, filters repositories.Que
 	response := &QuestionBankListResponse{
 		Banks: make([]*QuestionBankResponse, len(banks)),
 		Total: total,
-		Page:  filters.Offset / max(filters.Limit, 1),
+		Page:  (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:  filters.Limit,
 	}
 
@@ -241,7 +241,7 @@ func (s *questionBankService) GetByCreator(ctx context.Context, creatorID string
 	response := &QuestionBankListResponse{
 		Banks: make([]*QuestionBankResponse, len(banks)),
 		Total: total,
-		Page:  filters.Offset / max(filters.Limit, 1),
+		Page:  (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:  filters.Limit,
 	}
 
@@ -262,7 +262,7 @@ func (s *questionBankService) GetPublic(ctx context.Context, filters repositorie
 	response := &QuestionBankListResponse{
 		Banks: make([]*QuestionBankResponse, len(banks)),
 		Total: total,
-		Page:  filters.Offset / max(filters.Limit, 1),
+		Page:  (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:  filters.Limit,
 	}
 
@@ -283,7 +283,7 @@ func (s *questionBankService) GetSharedWithUser(ctx context.Context, userID stri
 	response := &QuestionBankListResponse{
 		Banks: make([]*QuestionBankResponse, len(banks)),
 		Total: total,
-		Page:  filters.Offset / max(filters.Limit, 1),
+		Page:  (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:  filters.Limit,
 	}
 
@@ -317,7 +317,7 @@ func (s *questionBankService) Search(ctx context.Context, query string, filters 
 	response := &QuestionBankListResponse{
 		Banks: make([]*QuestionBankResponse, len(banks)),
 		Total: total,
-		Page:  filters.Offset / max(filters.Limit, 1),
+		Page:  (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:  filters.Limit,
 	}
 
@@ -547,7 +547,7 @@ func (s *questionBankService) GetBankQuestions(ctx context.Context, bankID uint,
 	response := &QuestionListResponse{
 		Questions: make([]*QuestionResponse, len(questions)),
 		Total:     total,
-		Page:      filters.Offset / max(filters.Limit, 1),
+		Page:      filters.Offset/max(filters.Limit, 1) + 1,
 		Size:      filters.Limit,
 	}
 
@@ -630,8 +630,21 @@ func (s *questionBankService) buildQuestionBankResponse(ctx context.Context, ban
 		}
 	}
 
-	// Get question count from model if available
-	response.QuestionCount = bank.QuestionCount
+	// Get question count
+	// If Questions relation is preloaded (not nil), use len()
+	// Otherwise, query the count from database
+	if bank.Questions != nil {
+		response.QuestionCount = len(bank.Questions)
+	} else {
+		// Query count from database
+		count, err := s.repo.QuestionBank().CountQuestionsInBank(ctx, nil, bank.ID)
+		if err != nil {
+			s.logger.Warn("Failed to count questions in bank", "bank_id", bank.ID, "error", err)
+			response.QuestionCount = 0
+		} else {
+			response.QuestionCount = count
+		}
+	}
 
 	// Get share count
 	response.ShareCount = len(bank.SharedWith)
@@ -675,7 +688,7 @@ func (s *questionBankService) getAccessibleBanks(ctx context.Context, filters re
 	response := &QuestionBankListResponse{
 		Banks: make([]*QuestionBankResponse, len(banks)),
 		Total: total,
-		Page:  filters.Offset / max(filters.Limit, 1),
+		Page:  (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:  filters.Limit,
 	}
 

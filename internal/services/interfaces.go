@@ -358,6 +358,7 @@ type ServiceManager interface {
 	QuestionBank() QuestionBankService
 	Attempt() AttemptService
 	Grading() GradingService
+	Dashboard() DashboardService
 
 	// Additional service getters
 	ImportExport() ImportExportService

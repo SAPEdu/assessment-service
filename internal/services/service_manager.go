@@ -70,6 +70,7 @@ type serviceManager struct {
 	questionBankService QuestionBankService
 	attemptService      AttemptService
 	gradingService      GradingService
+	dashboardService    DashboardService
 	importExportService ImportExportService
 	// notificationService NotificationService
 	//analyticsService    AnalyticsService
@@ -211,6 +212,10 @@ func (sm *serviceManager) initializeServices(ctx context.Context) error {
 		sm.logger.Info("Grading service initialized")
 	}
 
+	// Initialize DashboardService
+	sm.dashboardService = NewDashboardService(sm.repo, sm.db, sm.logger)
+	sm.logger.Info("Dashboard service initialized")
+
 	// Initialize ImportExportService
 	sm.importExportService = NewImportExportService(sm.repo, sm.logger, sm.validator)
 	sm.logger.Info("ImportExport service initialized")
@@ -312,6 +317,21 @@ func (sm *serviceManager) Grading() GradingService {
 	}
 
 	panic("grading service not enabled or not initialized")
+}
+
+func (sm *serviceManager) Dashboard() DashboardService {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	if !sm.initialized {
+		panic("service manager not initialized")
+	}
+
+	if sm.dashboardService != nil {
+		return sm.dashboardService
+	}
+
+	panic("dashboard service not initialized")
 }
 
 func (sm *serviceManager) ImportExport() ImportExportService {

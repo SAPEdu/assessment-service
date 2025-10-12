@@ -260,7 +260,7 @@ func (s *assessmentService) List(ctx context.Context, filters repositories.Asses
 	response := &AssessmentListResponse{
 		Assessments: make([]*AssessmentResponse, len(assessments)),
 		Total:       total,
-		Page:        filters.Offset / max(filters.Limit, 1),
+		Page:        (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:        filters.Limit,
 	}
 
@@ -284,7 +284,7 @@ func (s *assessmentService) GetByCreator(ctx context.Context, creatorID string, 
 	response := &AssessmentListResponse{
 		Assessments: make([]*AssessmentResponse, len(assessments)),
 		Total:       total,
-		Page:        filters.Offset / max(filters.Limit, 1),
+		Page:        (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:        filters.Limit,
 	}
 
@@ -315,7 +315,7 @@ func (s *assessmentService) Search(ctx context.Context, query string, filters re
 	response := &AssessmentListResponse{
 		Assessments: make([]*AssessmentResponse, len(assessments)),
 		Total:       total,
-		Page:        filters.Offset / max(filters.Limit, 1),
+		Page:        (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:        filters.Limit,
 	}
 

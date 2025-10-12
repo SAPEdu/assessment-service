@@ -245,7 +245,7 @@ func (s *questionService) List(ctx context.Context, filters repositories.Questio
 	response := &QuestionListResponse{
 		Questions: make([]*QuestionResponse, len(questions)),
 		Total:     total,
-		Page:      filters.Offset / max(filters.Limit, 1),
+		Page:      (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:      filters.Limit,
 	}
 
@@ -269,7 +269,7 @@ func (s *questionService) GetByCreator(ctx context.Context, creatorID string, fi
 	response := &QuestionListResponse{
 		Questions: make([]*QuestionResponse, len(questions)),
 		Total:     total,
-		Page:      filters.Offset / max(filters.Limit, 1),
+		Page:      (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:      filters.Limit,
 	}
 
@@ -300,7 +300,7 @@ func (s *questionService) Search(ctx context.Context, query string, filters repo
 	response := &QuestionListResponse{
 		Questions: make([]*QuestionResponse, len(questions)),
 		Total:     total,
-		Page:      filters.Offset / max(filters.Limit, 1),
+		Page:      (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:      filters.Limit,
 	}
 
@@ -399,7 +399,7 @@ func (s *questionService) GetByBank(ctx context.Context, bankID uint, filters re
 	response := &QuestionListResponse{
 		Questions: make([]*QuestionResponse, len(questions)),
 		Total:     total,
-		Page:      filters.Offset / max(filters.Limit, 1),
+		Page:      (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:      filters.Limit,
 	}
 

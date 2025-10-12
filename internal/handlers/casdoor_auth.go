@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -194,19 +195,20 @@ func (cam *CasdoorAuthMiddleware) extractUserFromClaims(ctx context.Context, cla
 	}
 
 	// Try to get user from repository (cache or Casdoor)
-	user, err := cam.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		// If user not found in repo, create from claims
-		user = cam.createUserFromClaims(claims)
-		if user == nil {
-			return nil, fmt.Errorf("failed to create user from claims")
-		}
+	//user, err := cam.userRepo.GetByID(ctx, userID)
+	//if err != nil {
+	//	// If user not found in repo, create from claims
+	//
+	//}
+
+	user := cam.createUserFromClaims(claims)
+	if user == nil {
+		return nil, fmt.Errorf("failed to create user from claims")
 	}
 
 	// Update user activity
 	if err := cam.updateUserActivity(ctx, user.ID); err != nil {
-		// Log error but don't fail the request
-		// TODO: Add proper logging
+		slog.Warn("Failed to update user activity", "user_id", user.ID, "error", err)
 	}
 
 	return user, nil
@@ -232,6 +234,9 @@ func (cam *CasdoorAuthMiddleware) createUserFromClaims(claims *casdoorsdk.Claims
 
 	// Map Casdoor role to internal role
 	role := cam.mapCasdoorRoleToUserRole(claims.User.Type)
+	if claims.User.IsAdmin {
+		role = models.RoleAdmin
+	}
 
 	return &models.User{
 		ID:        userID,
