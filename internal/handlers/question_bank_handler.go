@@ -1085,11 +1085,12 @@ func (h *QuestionBankHandler) parseQuestionFilters(c *gin.Context) repositories.
 
 	// Parse sorting
 	if sortBy := c.Query("sort_by"); sortBy != "" {
+		// Only allow sortBy values that map to allowed DB columns.
 		validSortFields := map[string]bool{
 			"created_at": true,
-			"text":       true,
+			"updated_at": true,
 			"difficulty": true,
-			"points":     true,
+			"type":       true,
 		}
 		if validSortFields[sortBy] {
 			filters.SortBy = sortBy

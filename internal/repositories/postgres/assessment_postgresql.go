@@ -39,9 +39,8 @@ func (a *AssessmentPostgreSQL) Create(ctx context.Context, tx *gorm.DB, assessme
 	if err := tx.WithContext(ctx).Create(assessment).Error; err != nil {
 		return fmt.Errorf("failed to create assessment: %w", err)
 	}
-	// Invalidate related caches
-	a.cacheManager.Assessment.InvalidatePattern(ctx, fmt.Sprintf("creator:%s:*", assessment.CreatedBy))
-	a.cacheManager.Assessment.InvalidatePattern(ctx, "list:*")
+	cache.SafeInvalidatePattern(ctx, a.cacheManager.Assessment, fmt.Sprintf("creator:%s:*", assessment.CreatedBy))
+	cache.SafeInvalidatePattern(ctx, a.cacheManager.Assessment, "list:*")
 
 	return nil
 }
@@ -156,16 +155,19 @@ func (a *AssessmentPostgreSQL) Update(ctx context.Context, tx *gorm.DB, assessme
 		return fmt.Errorf("failed to update assessment: %w", err)
 	}
 
-	// Invalidate caches
-	a.cacheManager.Assessment.Delete(ctx, fmt.Sprintf("id:%d", assessment.ID), fmt.Sprintf("details:%d", assessment.ID))
-	a.cacheManager.Assessment.InvalidatePattern(ctx, fmt.Sprintf("creator:%s:*", assessment.CreatedBy))
-	a.cacheManager.Assessment.InvalidatePattern(ctx, "list:*")
+	cache.InvalidateAssessmentCache(ctx, a.cacheManager, assessment.ID, assessment.CreatedBy)
 
 	return nil
 }
 
 // Delete soft deletes an assessment
 func (a *AssessmentPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) error {
+	// Get assessment info before deleting for cache invalidation
+	var assessment models.Assessment
+	if err := tx.WithContext(ctx).Select("id, created_by").First(&assessment, id).Error; err != nil {
+		return fmt.Errorf("failed to get assessment before delete: %w", err)
+	}
+
 	// Check if assessment has attempts before deleting
 	hasAttempts, err := a.HasAttempts(ctx, tx, id)
 	if err != nil {
@@ -175,7 +177,14 @@ func (a *AssessmentPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint)
 		return fmt.Errorf("cannot delete assessment with existing attempts")
 	}
 
-	return tx.WithContext(ctx).Delete(&models.Assessment{}, id).Error
+	if err := tx.WithContext(ctx).Delete(&models.Assessment{}, id).Error; err != nil {
+		return fmt.Errorf("failed to delete assessment: %w", err)
+	}
+
+	cache.InvalidateAssessmentCache(ctx, a.cacheManager, id, assessment.CreatedBy)
+	cache.SafeDelete(ctx, a.cacheManager.Question, fmt.Sprintf("assessment:%d", id))
+
+	return nil
 }
 
 // List retrieves assessments with filters and pagination
@@ -269,13 +278,26 @@ func (a *AssessmentPostgreSQL) Search(ctx context.Context, tx *gorm.DB, query st
 // UpdateStatus updates the status of an assessment
 func (a *AssessmentPostgreSQL) UpdateStatus(ctx context.Context, tx *gorm.DB, id uint, status models.AssessmentStatus) error {
 	db := a.getDB(tx)
-	return db.WithContext(ctx).
+
+	// Get assessment info for cache invalidation
+	var assessment models.Assessment
+	if err := db.WithContext(ctx).Select("id, created_by").First(&assessment, id).Error; err != nil {
+		return fmt.Errorf("failed to get assessment: %w", err)
+	}
+
+	if err := db.WithContext(ctx).
 		Model(&models.Assessment{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"status":     status,
 			"updated_at": time.Now(),
-		}).Error
+		}).Error; err != nil {
+		return err
+	}
+
+	cache.InvalidateAssessmentCache(ctx, a.cacheManager, id, assessment.CreatedBy)
+
+	return nil
 }
 
 // GetExpiredAssessments retrieves assessments that have passed their due date
@@ -531,10 +553,26 @@ func (a *AssessmentPostgreSQL) HasActiveAttempts(ctx context.Context, tx *gorm.D
 func (a *AssessmentPostgreSQL) UpdateSettings(ctx context.Context, tx *gorm.DB, assessmentID uint, settings *models.AssessmentSettings) error {
 	db := a.getDB(tx)
 	settings.AssessmentID = assessmentID
-	return db.WithContext(ctx).
+
+	// Get assessment info for cache invalidation
+	var assessment models.Assessment
+	if err := db.WithContext(ctx).Select("id, created_by").First(&assessment, assessmentID).Error; err != nil {
+		return fmt.Errorf("failed to get assessment: %w", err)
+	}
+
+	if err := db.WithContext(ctx).
 		Model(&models.AssessmentSettings{}).
 		Where("assessment_id = ?", assessmentID).
-		Updates(settings).Error
+		Updates(settings).Error; err != nil {
+		return err
+	}
+
+	cache.SafeDelete(ctx, a.cacheManager.Assessment,
+		fmt.Sprintf("id:%d", assessmentID),
+		fmt.Sprintf("details:%d", assessmentID))
+	cache.SafeInvalidatePattern(ctx, a.cacheManager.Assessment, fmt.Sprintf("creator:%s:*", assessment.CreatedBy))
+
+	return nil
 }
 
 // GetSettings retrieves assessment settings
@@ -563,7 +601,7 @@ func (a *AssessmentPostgreSQL) UpdateDuration(ctx context.Context, tx *gorm.DB, 
 	// Check if assessment can be modified
 	var assessment models.Assessment
 	err := db.WithContext(ctx).
-		Select("status").
+		Select("status, created_by").
 		First(&assessment, assessmentID).Error
 	if err != nil {
 		return err
@@ -574,10 +612,16 @@ func (a *AssessmentPostgreSQL) UpdateDuration(ctx context.Context, tx *gorm.DB, 
 		return fmt.Errorf("can only modify duration for draft assessments")
 	}
 
-	return db.WithContext(ctx).
+	if err := db.WithContext(ctx).
 		Model(&models.Assessment{}).
 		Where("id = ?", assessmentID).
-		Update("duration", duration).Error
+		Update("duration", duration).Error; err != nil {
+		return err
+	}
+
+	cache.InvalidateAssessmentCache(ctx, a.cacheManager, assessmentID, assessment.CreatedBy)
+
+	return nil
 }
 
 // UpdateMaxAttempts updates max attempts with business rules
@@ -588,13 +632,13 @@ func (a *AssessmentPostgreSQL) UpdateMaxAttempts(ctx context.Context, tx *gorm.D
 		return fmt.Errorf("max attempts must be between 1 and 10")
 	}
 
-	// Get current max attempts
-	var currentMaxAttempts int
+	// Get current max attempts and creator
+	var assessment models.Assessment
 	err := db.WithContext(ctx).
 		Model(&models.Assessment{}).
-		Select("max_attempts").
+		Select("max_attempts, created_by").
 		Where("id = ?", assessmentID).
-		Scan(&currentMaxAttempts).Error
+		First(&assessment).Error
 	if err != nil {
 		return err
 	}
@@ -606,14 +650,20 @@ func (a *AssessmentPostgreSQL) UpdateMaxAttempts(ctx context.Context, tx *gorm.D
 	}
 
 	// If has attempts, only allow increasing max attempts
-	if hasAttempts && maxAttempts < currentMaxAttempts {
+	if hasAttempts && maxAttempts < assessment.MaxAttempts {
 		return fmt.Errorf("cannot decrease max attempts when assessment has existing attempts")
 	}
 
-	return db.WithContext(ctx).
+	if err := db.WithContext(ctx).
 		Model(&models.Assessment{}).
 		Where("id = ?", assessmentID).
-		Update("max_attempts", maxAttempts).Error
+		Update("max_attempts", maxAttempts).Error; err != nil {
+		return err
+	}
+
+	cache.InvalidateAssessmentCache(ctx, a.cacheManager, assessmentID, assessment.CreatedBy)
+
+	return nil
 }
 
 // Helper methods

@@ -623,15 +623,28 @@ func (r *questionBankRepository) applyBankFilters(query *gorm.DB, filters reposi
 }
 
 func (r *questionBankRepository) applyPaginationAndSorting(query *gorm.DB, limit, offset int, sortBy, sortOrder string) *gorm.DB {
-	// Apply sorting
-	if sortBy == "" {
-		sortBy = "created_at"
-	}
-	if sortOrder == "" {
-		sortOrder = "desc"
+	// Whitelist allowed sort columns: map API keys to SQL identifiers
+	sortKeyToColumn := map[string]string{
+		"created_at": "created_at",
+		"updated_at": "updated_at",
+		"name":       "name",
+		"id":         "id",
 	}
 
-	query = query.Order(fmt.Sprintf("%s %s", sortBy, sortOrder))
+	// Validate and set sort column (map API to SQL name, default if invalid)
+	column, ok := sortKeyToColumn[sortBy]
+	if !ok {
+		column = "created_at"
+	}
+
+	// Validate and set sort order
+	order := "DESC"
+	if sortOrder == "asc" || sortOrder == "ASC" {
+		order = "ASC"
+	}
+
+	// Use only mapped SQL column name and constant sort order
+	query = query.Order(fmt.Sprintf("%s %s", column, order))
 
 	// Apply pagination
 	if limit > 0 {
@@ -645,15 +658,27 @@ func (r *questionBankRepository) applyPaginationAndSorting(query *gorm.DB, limit
 }
 
 func (r *questionBankRepository) applyQuestionPaginationAndSorting(query *gorm.DB, limit, offset int, sortBy, sortOrder string) *gorm.DB {
-	// Apply sorting for questions
-	if sortBy == "" {
-		sortBy = "q.created_at"
-	}
-	if sortOrder == "" {
-		sortOrder = "desc"
+	// Whitelist allowed sort columns for questions
+	// Map logical API sort keys (must match handler) to SQL-safe column names
+	sortKeyToColumn := map[string]string{
+		"created_at":  "q.created_at",
+		"updated_at":  "q.updated_at",
+		"difficulty":  "q.difficulty",
+		"type":        "q.type",
 	}
 
-	query = query.Order(fmt.Sprintf("%s %s", sortBy, sortOrder))
+	column, ok := sortKeyToColumn[sortBy]
+	if !ok {
+		column = "q.created_at"
+	}
+
+	sortOrderUpper := "DESC"
+	if sortOrder == "asc" || sortOrder == "ASC" {
+		sortOrderUpper = "ASC"
+	}
+
+	// Only use safe mapped column and constant sort order
+	query = query.Order(fmt.Sprintf("%s %s", column, sortOrderUpper))
 
 	// Apply pagination
 	if limit > 0 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -79,7 +80,8 @@ func (c *CacheHelper) Get(ctx context.Context, key string, dest interface{}) err
 		if err == redis.Nil {
 			return ErrCacheNotFound
 		}
-		return fmt.Errorf("cache get error: %w", err)
+		// Sanitize error to prevent log injection
+		return fmt.Errorf("cache get error for key type: %w", err)
 	}
 
 	if err := json.Unmarshal([]byte(data), dest); err != nil {
@@ -132,7 +134,7 @@ func (c *CacheHelper) GetString(ctx context.Context, key string) (string, error)
 	return result, nil
 }
 
-// Delete removes data from cache
+// Delete removes data from cache using pipeline for multiple keys
 func (c *CacheHelper) Delete(ctx context.Context, keys ...string) error {
 	if c.client == nil {
 		return nil
@@ -145,6 +147,14 @@ func (c *CacheHelper) Delete(ctx context.Context, keys ...string) error {
 	cacheKeys := make([]string, len(keys))
 	for i, key := range keys {
 		cacheKeys[i] = c.GetCacheKey(key)
+	}
+
+	// Use pipeline for multiple keys
+	if len(cacheKeys) > 1 {
+		pipe := c.client.Pipeline()
+		pipe.Del(ctx, cacheKeys...)
+		_, err := pipe.Exec(ctx)
+		return err
 	}
 
 	return c.client.Del(ctx, cacheKeys...).Err()
@@ -223,23 +233,56 @@ func (c *CacheHelper) GetMultiple(ctx context.Context, keys []string) (map[strin
 	return result, nil
 }
 
-// InvalidatePattern removes all keys matching a pattern
+// InvalidatePattern removes all keys matching a pattern using SCAN instead of KEYS
 func (c *CacheHelper) InvalidatePattern(ctx context.Context, pattern string) error {
 	if c.client == nil {
 		return nil
 	}
 
 	fullPattern := c.GetCacheKey(pattern)
-	keys, err := c.client.Keys(ctx, fullPattern).Result()
-	if err != nil {
-		return fmt.Errorf("cache keys pattern error: %w", err)
+	var cursor uint64
+	var keys []string
+
+	// Use SCAN instead of KEYS for better performance
+	for {
+		var scanKeys []string
+		var err error
+		scanKeys, cursor, err = c.client.Scan(ctx, cursor, fullPattern, 100).Result()
+		if err != nil {
+			slog.ErrorContext(ctx, "Cache scan pattern error",
+				"error", err,
+				"pattern", fullPattern)
+			return fmt.Errorf("cache scan pattern error: %w", err)
+		}
+		keys = append(keys, scanKeys...)
+		if cursor == 0 {
+			break
+		}
 	}
 
 	if len(keys) == 0 {
 		return nil
 	}
 
-	return c.client.Del(ctx, keys...).Err()
+	// Delete using pipeline for better performance
+	pipe := c.client.Pipeline()
+	const batchSize = 100
+	for i := 0; i < len(keys); i += batchSize {
+		end := i + batchSize
+		if end > len(keys) {
+			end = len(keys)
+		}
+		pipe.Del(ctx, keys[i:end]...)
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		slog.ErrorContext(ctx, "Cache pipeline delete error",
+			"error", err,
+			"total_keys", len(keys))
+		return fmt.Errorf("cache pipeline delete error: %w", err)
+	}
+
+	return nil
 }
 
 // SetWithConfig stores data using predefined config
@@ -254,7 +297,7 @@ func (c *CacheHelper) GetWithConfig(ctx context.Context, key string, dest interf
 	return c.Get(ctx, fullKey, dest)
 }
 
-// CacheOrExecute implements cache-aside pattern
+// CacheOrExecute implements cache-aside pattern with proper error handling
 func (c *CacheHelper) CacheOrExecute(ctx context.Context, key string, dest interface{}, ttl time.Duration, fetchFunc func() (interface{}, error)) error {
 	// Try cache first
 	err := c.Get(ctx, key, dest)
@@ -263,8 +306,8 @@ func (c *CacheHelper) CacheOrExecute(ctx context.Context, key string, dest inter
 	}
 
 	if err != ErrCacheNotFound && err != ErrCacheNotAvailable {
-		// Log cache error but continue with fetch
-		// In production, you might want to log this
+		// Cache error occurred but continue with fetch
+		slog.Info("Cache get error, proceeding to fetch", "error", err, "key", key)
 	}
 
 	// Execute fetch function
@@ -273,10 +316,17 @@ func (c *CacheHelper) CacheOrExecute(ctx context.Context, key string, dest inter
 		return fmt.Errorf("fetch function error: %w", err)
 	}
 
-	// Store in cache (ignore cache errors)
-	c.Set(ctx, key, value, ttl)
+	// Store in cache asynchronously to not block the response
+	go func(parentCtx context.Context) {
+		// Use parent context with timeout
+		ctxWithTimeout, cancel := context.WithTimeout(parentCtx, 5*time.Second)
+		defer cancel()
+		if err := c.Set(ctxWithTimeout, key, value, ttl); err != nil {
+			slog.Error("Cache set error", "error", err, "key", key)
+		}
+	}(ctx)
 
-	// Set the result to destination
+	// Set the result to destination directly without re-marshaling
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("marshal result error: %w", err)

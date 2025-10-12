@@ -37,9 +37,8 @@ func (q *QuestionPostgreSQL) Create(ctx context.Context, tx *gorm.DB, question *
 		return fmt.Errorf("failed to create question: %w", err)
 	}
 
-	// Invalidate related caches
-	q.cacheManager.Question.InvalidatePattern(ctx, fmt.Sprintf("creator:%s:*", question.CreatedBy))
-	q.cacheManager.Question.InvalidatePattern(ctx, "list:*")
+	cache.SafeInvalidatePattern(ctx, q.cacheManager.Question, fmt.Sprintf("creator:%s:*", question.CreatedBy))
+	cache.SafeInvalidatePattern(ctx, q.cacheManager.Question, "list:*")
 
 	return nil
 }
@@ -95,15 +94,28 @@ func (q *QuestionPostgreSQL) Update(ctx context.Context, tx *gorm.DB, question *
 		return fmt.Errorf("failed to update question: %w", err)
 	}
 
+	cache.InvalidateQuestionCache(ctx, q.cacheManager, question.ID, question.CreatedBy)
+	q.invalidateAssessmentCachesForQuestion(ctx, db, question.ID)
+
 	return nil
 }
 
 // Delete soft deletes a question
 func (q *QuestionPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) error {
 	db := q.getDB(tx)
+
+	// Get question info before deleting for cache invalidation
+	var question models.Question
+	if err := db.WithContext(ctx).Select("id, created_by").First(&question, id).Error; err != nil {
+		return fmt.Errorf("failed to get question before delete: %w", err)
+	}
+
 	if err := db.WithContext(ctx).Delete(&models.Question{}, id).Error; err != nil {
 		return fmt.Errorf("failed to delete question: %w", err)
 	}
+
+	cache.InvalidateQuestionCache(ctx, q.cacheManager, id, question.CreatedBy)
+	q.invalidateAssessmentCachesForQuestion(ctx, db, id)
 
 	return nil
 }
@@ -579,6 +591,13 @@ func (q *QuestionPostgreSQL) GetUsageCount(ctx context.Context, tx *gorm.DB, id 
 // UpdateContent updates only the content field of a question
 func (q *QuestionPostgreSQL) UpdateContent(ctx context.Context, tx *gorm.DB, id uint, content interface{}) error {
 	db := q.getDB(tx)
+
+	// Get question info before updating for cache invalidation
+	var question models.Question
+	if err := db.WithContext(ctx).Select("id, created_by").First(&question, id).Error; err != nil {
+		return fmt.Errorf("failed to get question before update content: %w", err)
+	}
+
 	// Validate content structure
 	contentBytes, err := json.Marshal(content)
 	if err != nil {
@@ -591,6 +610,9 @@ func (q *QuestionPostgreSQL) UpdateContent(ctx context.Context, tx *gorm.DB, id 
 		Update("content", contentBytes).Error; err != nil {
 		return fmt.Errorf("failed to update question content: %w", err)
 	}
+
+	cache.InvalidateQuestionCache(ctx, q.cacheManager, id, question.CreatedBy)
+	q.invalidateAssessmentCachesForQuestion(ctx, db, id)
 
 	return nil
 }
@@ -621,15 +643,25 @@ func (q *QuestionPostgreSQL) GetByBank(ctx context.Context, bankID uint, filters
 		return nil, 0, fmt.Errorf("failed to count questions in bank: %w", err)
 	}
 
-	// Apply pagination and sorting
-	if filters.SortBy == "" {
-		filters.SortBy = "q.created_at"
-	}
-	if filters.SortOrder == "" {
-		filters.SortOrder = "desc"
+	// Apply pagination and sorting with safe column names
+	allowedSortColumns := map[string]bool{
+		"created_at": true,
+		"updated_at": true,
+		"difficulty": true,
+		"type":       true,
 	}
 
-	query = query.Order(fmt.Sprintf("%s %s", filters.SortBy, filters.SortOrder))
+	sortBy := "created_at"
+	if filters.SortBy != "" && allowedSortColumns[filters.SortBy] {
+		sortBy = fmt.Sprintf("q.%s", filters.SortBy)
+	}
+
+	sortOrder := "DESC"
+	if filters.SortOrder == "asc" || filters.SortOrder == "ASC" {
+		sortOrder = "ASC"
+	}
+
+	query = query.Order(sortBy + " " + sortOrder)
 
 	if filters.Limit > 0 {
 		query = query.Limit(filters.Limit)
@@ -669,9 +701,7 @@ func (q *QuestionPostgreSQL) AddToBank(ctx context.Context, questionID, bankID u
 		return fmt.Errorf("failed to add question to bank: %w", err)
 	}
 
-	// Invalidate related caches
-	q.cacheManager.Question.InvalidatePattern(ctx, fmt.Sprintf("bank:%d:*", bankID))
-
+	cache.SafeInvalidatePattern(ctx, q.cacheManager.Question, fmt.Sprintf("bank:%d:*", bankID))
 	return nil
 }
 
@@ -685,9 +715,7 @@ func (q *QuestionPostgreSQL) RemoveFromBank(ctx context.Context, questionID, ban
 		return fmt.Errorf("failed to remove question from bank: %w", err)
 	}
 
-	// Invalidate related caches
-	q.cacheManager.Question.InvalidatePattern(ctx, fmt.Sprintf("bank:%d:*", bankID))
-
+	cache.SafeInvalidatePattern(ctx, q.cacheManager.Question, fmt.Sprintf("bank:%d:*", bankID))
 	return nil
 }
 
@@ -730,4 +758,25 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// invalidateAssessmentCachesForQuestion invalidates all assessment caches that use this question
+func (q *QuestionPostgreSQL) invalidateAssessmentCachesForQuestion(ctx context.Context, db *gorm.DB, questionID uint) {
+	// Get all assessment IDs that use this question
+	var assessmentIDs []uint
+	if err := db.WithContext(ctx).
+		Table("assessment_questions").
+		Where("question_id = ?", questionID).
+		Pluck("assessment_id", &assessmentIDs).Error; err != nil {
+		// Log error but don't fail the operation
+		return
+	}
+
+	for _, assessmentID := range assessmentIDs {
+		cache.SafeDelete(ctx, q.cacheManager.Assessment,
+			fmt.Sprintf("id:%d", assessmentID),
+			fmt.Sprintf("details:%d", assessmentID))
+		cache.SafeDelete(ctx, q.cacheManager.Question, fmt.Sprintf("assessment:%d", assessmentID))
+		cache.SafeInvalidatePattern(ctx, q.cacheManager.Stats, fmt.Sprintf("assessment:%d:*", assessmentID))
+	}
 }

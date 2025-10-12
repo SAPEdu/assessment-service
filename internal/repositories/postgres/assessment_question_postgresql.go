@@ -43,6 +43,10 @@ func (aq *AssessmentQuestionPostgreSQL) Create(ctx context.Context, tx *gorm.DB,
 	if err := db.WithContext(ctx).Create(assessmentQuestion).Error; err != nil {
 		return fmt.Errorf("failed to create assessment question: %w", err)
 	}
+
+	// Invalidate caches
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentQuestion.AssessmentID)
+
 	return nil
 }
 
@@ -68,15 +72,30 @@ func (aq *AssessmentQuestionPostgreSQL) Update(ctx context.Context, tx *gorm.DB,
 	if err := db.WithContext(ctx).Save(assessmentQuestion).Error; err != nil {
 		return fmt.Errorf("failed to update assessment question: %w", err)
 	}
+
+	// Invalidate caches
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentQuestion.AssessmentID)
+
 	return nil
 }
 
 // Delete removes an assessment-question relationship
 func (aq *AssessmentQuestionPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) error {
 	db := aq.getDB(tx)
+
+	// Get assessment ID before deleting for cache invalidation
+	var assessmentQuestion models.AssessmentQuestion
+	if err := db.WithContext(ctx).Select("assessment_id").First(&assessmentQuestion, id).Error; err != nil {
+		return fmt.Errorf("failed to get assessment question before delete: %w", err)
+	}
+
 	if err := db.WithContext(ctx).Delete(&models.AssessmentQuestion{}, id).Error; err != nil {
 		return fmt.Errorf("failed to delete assessment question: %w", err)
 	}
+
+	// Invalidate caches
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentQuestion.AssessmentID)
+
 	return nil
 }
 
@@ -109,7 +128,14 @@ func (aq *AssessmentQuestionPostgreSQL) AddQuestion(ctx context.Context, tx *gor
 		Required:     true,
 	}
 
-	return aq.Create(ctx, tx, assessmentQuestion)
+	if err := aq.Create(ctx, tx, assessmentQuestion); err != nil {
+		return err
+	}
+
+	// Invalidate caches (Create already invalidates, but being explicit)
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
+
+	return nil
 }
 
 // RemoveQuestion removes a question from an assessment
@@ -126,6 +152,9 @@ func (aq *AssessmentQuestionPostgreSQL) RemoveQuestion(ctx context.Context, tx *
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("no relationship found between assessment %d and question %d", assessmentID, questionID)
 	}
+
+	// Invalidate caches
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
 
 	return nil
 }
@@ -167,7 +196,14 @@ func (aq *AssessmentQuestionPostgreSQL) AddQuestions(ctx context.Context, tx *go
 		}
 	}
 
-	return aq.CreateBatch(ctx, db, assessmentQuestions)
+	if err := aq.CreateBatch(ctx, db, assessmentQuestions); err != nil {
+		return err
+	}
+
+	// Invalidate caches
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
+
+	return nil
 }
 
 // RemoveQuestions removes multiple questions from an assessment
@@ -214,13 +250,23 @@ func (aq *AssessmentQuestionPostgreSQL) RemoveQuestions(ctx context.Context, tx 
 		return nil
 	}
 
+	var err error
 	if tx != nil {
-		return execFunc(db)
+		err = execFunc(db)
+	} else {
+		err = db.WithContext(ctx).Transaction(func(txInner *gorm.DB) error {
+			return execFunc(txInner)
+		})
 	}
 
-	return db.WithContext(ctx).Transaction(func(txInner *gorm.DB) error {
-		return execFunc(txInner)
-	})
+	if err != nil {
+		return err
+	}
+
+	// Invalidate caches after successful removal
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
+
+	return nil
 }
 
 // ===== ORDER MANAGEMENT =====
@@ -232,7 +278,7 @@ func (aq *AssessmentQuestionPostgreSQL) UpdateOrder(ctx context.Context, tx *gor
 	}
 
 	db := aq.getDB(tx)
-	return db.WithContext(ctx).Transaction(func(txInner *gorm.DB) error {
+	err := db.WithContext(ctx).Transaction(func(txInner *gorm.DB) error {
 		for _, qo := range questionOrders {
 			result := txInner.Model(&models.AssessmentQuestion{}).
 				Where("assessment_id = ? AND question_id = ?", assessmentID, qo.QuestionID).
@@ -248,6 +294,15 @@ func (aq *AssessmentQuestionPostgreSQL) UpdateOrder(ctx context.Context, tx *gor
 		}
 		return nil
 	})
+
+	if err != nil {
+		return err
+	}
+
+	// Invalidate caches (order changed affects assessment details)
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
+
+	return nil
 }
 
 // ReorderQuestions reorders questions based on provided order
@@ -259,7 +314,15 @@ func (aq *AssessmentQuestionPostgreSQL) ReorderQuestions(ctx context.Context, tx
 			Order:      i + 1,
 		}
 	}
-	return aq.UpdateOrder(ctx, tx, assessmentID, questionOrders)
+	err := aq.UpdateOrder(ctx, tx, assessmentID, questionOrders)
+	if err != nil {
+		return err
+	}
+
+	// Invalidate caches (UpdateOrder already does this, but being explicit)
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
+
+	return nil
 }
 
 // GetMaxOrder gets the maximum order value for questions in an assessment
@@ -393,17 +456,35 @@ func (aq *AssessmentQuestionPostgreSQL) DeleteByAssessment(ctx context.Context, 
 		Delete(&models.AssessmentQuestion{}).Error; err != nil {
 		return fmt.Errorf("failed to delete assessment questions by assessment: %w", err)
 	}
+
+	// Invalidate caches (all questions removed from assessment)
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
+
 	return nil
 }
 
 // DeleteByQuestion removes a question from all assessments
 func (aq *AssessmentQuestionPostgreSQL) DeleteByQuestion(ctx context.Context, tx *gorm.DB, questionID uint) error {
 	db := aq.getDB(tx)
+
+	// Get all affected assessment IDs before deleting for cache invalidation
+	var assessmentIDs []uint
+	if err := db.WithContext(ctx).
+		Model(&models.AssessmentQuestion{}).
+		Where("question_id = ?", questionID).
+		Pluck("assessment_id", &assessmentIDs).Error; err != nil {
+		return fmt.Errorf("failed to get assessment IDs before delete: %w", err)
+	}
+
 	if err := db.WithContext(ctx).
 		Where("question_id = ?", questionID).
 		Delete(&models.AssessmentQuestion{}).Error; err != nil {
 		return fmt.Errorf("failed to delete assessment questions by question: %w", err)
 	}
+
+	// Invalidate caches for all affected assessments
+	aq.invalidateCachesForAssessmentQuestions(ctx, assessmentIDs)
+
 	return nil
 }
 
@@ -473,6 +554,9 @@ func (aq *AssessmentQuestionPostgreSQL) UpdatePoints(ctx context.Context, tx *go
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("no relationship found between assessment %d and question %d", assessmentID, questionID)
 	}
+
+	// Invalidate caches (points changed affects total points in assessment)
+	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
 
 	return nil
 }
@@ -707,4 +791,24 @@ func (aq *AssessmentQuestionPostgreSQL) GetQuestionAssessmentByAssessmentIdAndQu
 	}
 
 	return &assessmentQuestion, nil
+}
+
+// ===== CACHE INVALIDATION HELPERS =====
+
+// invalidateCachesForAssessmentQuestion invalidates all relevant caches when assessment-question relationship changes
+func (aq *AssessmentQuestionPostgreSQL) invalidateCachesForAssessmentQuestion(ctx context.Context, assessmentID uint) {
+	cache.SafeDelete(ctx, aq.cacheManager.Assessment,
+		fmt.Sprintf("id:%d", assessmentID),
+		fmt.Sprintf("details:%d", assessmentID))
+
+	cache.SafeDelete(ctx, aq.cacheManager.Question, fmt.Sprintf("assessment:%d", assessmentID))
+	cache.SafeInvalidatePattern(ctx, aq.cacheManager.Assessment, "list:*")
+	cache.SafeInvalidatePattern(ctx, aq.cacheManager.Stats, fmt.Sprintf("assessment:%d:*", assessmentID))
+}
+
+// invalidateCachesForAssessmentQuestions invalidates caches for multiple assessments
+func (aq *AssessmentQuestionPostgreSQL) invalidateCachesForAssessmentQuestions(ctx context.Context, assessmentIDs []uint) {
+	for _, assessmentID := range assessmentIDs {
+		aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
+	}
 }

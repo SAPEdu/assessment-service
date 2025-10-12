@@ -92,16 +92,33 @@ func (h *SharedHelpers) ApplyAttemptFilters(query *gorm.DB, filters repositories
 	return query
 }
 
-// ApplyPaginationAndSort applies pagination and sorting
+// ApplyPaginationAndSort applies pagination and sorting with SQL injection protection
 func (h *SharedHelpers) ApplyPaginationAndSort(query *gorm.DB, sortBy, sortOrder string, limit, offset int) *gorm.DB {
-	if sortBy == "" {
-		sortBy = "created_at"
-	}
-	if sortOrder == "" {
-		sortOrder = "DESC"
+	// Whitelist allowed sort columns
+	allowedSortColumns := map[string]bool{
+		"created_at": true,
+		"updated_at": true,
+		"id":         true,
+		"title":      true,
+		"status":     true,
+		"difficulty": true,
+		"type":       true,
+		"score":      true,
 	}
 
-	query = query.Order(fmt.Sprintf("%s %s", sortBy, sortOrder))
+	// Validate and set sort column
+	if sortBy == "" || !allowedSortColumns[sortBy] {
+		sortBy = "created_at"
+	}
+
+	// Validate and set sort order
+	if sortOrder != "asc" && sortOrder != "ASC" {
+		sortOrder = "DESC"
+	} else {
+		sortOrder = "ASC"
+	}
+
+	query = query.Order(sortBy + " " + sortOrder)
 
 	if limit > 0 {
 		query = query.Limit(limit)
