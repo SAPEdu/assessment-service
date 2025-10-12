@@ -658,26 +658,26 @@ func (r *questionBankRepository) applyPaginationAndSorting(query *gorm.DB, limit
 
 func (r *questionBankRepository) applyQuestionPaginationAndSorting(query *gorm.DB, limit, offset int, sortBy, sortOrder string) *gorm.DB {
 	// Whitelist allowed sort columns for questions
-	allowedSortColumns := map[string]bool{
-		"q.created_at": true,
-		"q.updated_at": true,
-		"q.difficulty": true,
-		"q.type":       true,
+	// Map logical API sort keys (must match handler) to SQL-safe column names
+	sortKeyToColumn := map[string]string{
+		"created_at":  "q.created_at",
+		"updated_at":  "q.updated_at",
+		"difficulty":  "q.difficulty",
+		"type":        "q.type",
 	}
 
-	// Validate and set sort column
-	if sortBy == "" || !allowedSortColumns[sortBy] {
-		sortBy = "q.created_at"
+	column, ok := sortKeyToColumn[sortBy]
+	if !ok {
+		column = "q.created_at"
 	}
 
-	// Validate and set sort order
-	if sortOrder != "asc" && sortOrder != "ASC" {
-		sortOrder = "DESC"
-	} else {
-		sortOrder = "ASC"
+	sortOrderUpper := "DESC"
+	if sortOrder == "asc" || sortOrder == "ASC" {
+		sortOrderUpper = "ASC"
 	}
 
-	query = query.Order(sortBy + " " + sortOrder)
+	// Only use safe mapped column and constant sort order
+	query = query.Order(fmt.Sprintf("%s %s", column, sortOrderUpper))
 
 	// Apply pagination
 	if limit > 0 {
