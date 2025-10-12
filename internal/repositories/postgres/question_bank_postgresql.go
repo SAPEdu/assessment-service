@@ -623,15 +623,27 @@ func (r *questionBankRepository) applyBankFilters(query *gorm.DB, filters reposi
 }
 
 func (r *questionBankRepository) applyPaginationAndSorting(query *gorm.DB, limit, offset int, sortBy, sortOrder string) *gorm.DB {
-	// Apply sorting
-	if sortBy == "" {
-		sortBy = "created_at"
-	}
-	if sortOrder == "" {
-		sortOrder = "desc"
+	// Whitelist allowed sort columns
+	allowedSortColumns := map[string]bool{
+		"created_at": true,
+		"updated_at": true,
+		"name":       true,
+		"id":         true,
 	}
 
-	query = query.Order(fmt.Sprintf("%s %s", sortBy, sortOrder))
+	// Validate and set sort column
+	if sortBy == "" || !allowedSortColumns[sortBy] {
+		sortBy = "created_at"
+	}
+
+	// Validate and set sort order
+	if sortOrder != "asc" && sortOrder != "ASC" {
+		sortOrder = "DESC"
+	} else {
+		sortOrder = "ASC"
+	}
+
+	query = query.Order(sortBy + " " + sortOrder)
 
 	// Apply pagination
 	if limit > 0 {
@@ -645,15 +657,27 @@ func (r *questionBankRepository) applyPaginationAndSorting(query *gorm.DB, limit
 }
 
 func (r *questionBankRepository) applyQuestionPaginationAndSorting(query *gorm.DB, limit, offset int, sortBy, sortOrder string) *gorm.DB {
-	// Apply sorting for questions
-	if sortBy == "" {
-		sortBy = "q.created_at"
-	}
-	if sortOrder == "" {
-		sortOrder = "desc"
+	// Whitelist allowed sort columns for questions
+	allowedSortColumns := map[string]bool{
+		"q.created_at": true,
+		"q.updated_at": true,
+		"q.difficulty": true,
+		"q.type":       true,
 	}
 
-	query = query.Order(fmt.Sprintf("%s %s", sortBy, sortOrder))
+	// Validate and set sort column
+	if sortBy == "" || !allowedSortColumns[sortBy] {
+		sortBy = "q.created_at"
+	}
+
+	// Validate and set sort order
+	if sortOrder != "asc" && sortOrder != "ASC" {
+		sortOrder = "DESC"
+	} else {
+		sortOrder = "ASC"
+	}
+
+	query = query.Order(sortBy + " " + sortOrder)
 
 	// Apply pagination
 	if limit > 0 {
