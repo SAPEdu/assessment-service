@@ -233,7 +233,7 @@ func (cam *CasdoorAuthMiddleware) createUserFromClaims(claims *casdoorsdk.Claims
 	avatarURL := claims.User.Avatar
 
 	// Map Casdoor role to internal role
-	role := cam.mapCasdoorRoleToUserRole(claims.User.Type)
+	role := cam.mapCasdoorRoleToUserRole(claims.Roles)
 	if claims.User.IsAdmin {
 		role = models.RoleAdmin
 	}
@@ -254,19 +254,17 @@ func (cam *CasdoorAuthMiddleware) createUserFromClaims(claims *casdoorsdk.Claims
 }
 
 // mapCasdoorRoleToUserRole maps Casdoor user type to internal role
-func (cam *CasdoorAuthMiddleware) mapCasdoorRoleToUserRole(casdoorType string) models.UserRole {
-	switch strings.ToLower(casdoorType) {
-	case "admin", "administrator":
-		return models.RoleAdmin
-	case "teacher", "instructor", "educator":
-		return models.RoleTeacher
-	case "proctor", "supervisor":
-		return models.RoleProctor
-	case "student", "learner":
-		return models.RoleStudent
-	default:
-		return models.RoleStudent
+func (cam *CasdoorAuthMiddleware) mapCasdoorRoleToUserRole(casdoorType []*casdoorsdk.Role) models.UserRole {
+	for _, role := range casdoorType {
+		switch role.Name {
+		case "Admin":
+			return models.RoleAdmin
+		case "Teacher":
+			return models.RoleTeacher
+		}
 	}
+
+	return models.RoleStudent
 }
 
 // updateUserActivity updates user's last activity time

@@ -353,11 +353,13 @@ func (h *AttemptHandler) ListAttempts(c *gin.Context) {
 	}
 
 	page := (filters.Offset / max(filters.Limit, 1)) + 1
+	totalPage := (int(total) + filters.Limit - 1) / max(filters.Limit, 1)
 	response := map[string]interface{}{
-		"attempts": attempts,
-		"total":    total,
-		"page":     page,
-		"size":     filters.Limit,
+		"data":        attempts,
+		"total":       total,
+		"page":        page,
+		"size":        filters.Limit,
+		"total_pages": totalPage,
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -392,11 +394,13 @@ func (h *AttemptHandler) GetAttemptsByStudent(c *gin.Context) {
 	}
 
 	page := (filters.Offset / max(filters.Limit, 1)) + 1
+	totalPage := (int(total) + filters.Limit - 1) / max(filters.Limit, 1)
 	response := map[string]interface{}{
-		"attempts": attempts,
-		"total":    total,
-		"page":     page,
-		"size":     filters.Limit,
+		"data":        attempts,
+		"total":       total,
+		"page":        page,
+		"size":        filters.Limit,
+		"total_pages": totalPage,
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -439,11 +443,13 @@ func (h *AttemptHandler) GetAttemptsByAssessment(c *gin.Context) {
 	}
 
 	page := (filters.Offset / max(filters.Limit, 1)) + 1
+	totalPage := (int(total) + filters.Limit - 1) / max(filters.Limit, 1)
 	response := map[string]interface{}{
-		"attempts": attempts,
-		"total":    total,
-		"page":     page,
-		"size":     filters.Limit,
+		"data":        attempts,
+		"total":       total,
+		"page":        page,
+		"size":        filters.Limit,
+		"total_pages": totalPage,
 	}
 
 	c.JSON(http.StatusOK, response)

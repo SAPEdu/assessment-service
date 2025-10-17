@@ -18,6 +18,7 @@ type HandlerManager struct {
 	attemptHandler      *AttemptHandler
 	gradingHandler      *GradingHandler
 	dashboardHandler    *DashboardHandler
+	studentHandler      *StudentHandler
 	userHandler         *UserHandler
 	authMiddleware      *CasdoorAuthMiddleware
 }
@@ -38,6 +39,7 @@ func NewHandlerManager(
 		attemptHandler:      NewAttemptHandler(serviceManager.Attempt(), validator, logger),
 		gradingHandler:      NewGradingHandler(serviceManager.Grading(), validator, logger),
 		dashboardHandler:    NewDashboardHandler(serviceManager.Dashboard(), logger),
+		studentHandler:      NewStudentHandler(serviceManager.Student(), logger),
 		userHandler:         NewUserHandler(userRepo, logger),
 		authMiddleware:      authMiddleware,
 	}
@@ -176,8 +178,8 @@ func (hm *HandlerManager) SetupRoutes(router *gin.Engine) {
 			attempts.GET("/assessment/:assessment_id", hm.attemptHandler.GetAttemptsByAssessment)
 			attempts.GET("/stats/:assessment_id", hm.attemptHandler.GetAttemptStats)
 
-			// Student-specific routes
-			attempts.GET("/student/:student_id", hm.attemptHandler.GetAttemptsByStudent)
+			// Student-specific routes - Teachers and Admins only (students should use /students/me/attempts)
+			attempts.GET("/student/:student_id", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.attemptHandler.GetAttemptsByStudent)
 		}
 
 		// Grading routes - Teachers, Proctors and Admins only
@@ -215,6 +217,16 @@ func (hm *HandlerManager) SetupRoutes(router *gin.Engine) {
 			dashboard.GET("/recent-activities", hm.dashboardHandler.GetRecentActivities)
 			dashboard.GET("/question-distribution", hm.dashboardHandler.GetQuestionDistribution)
 			dashboard.GET("/performance-by-subject", hm.dashboardHandler.GetPerformanceBySubject)
+		}
+
+		// Student routes - Students only
+		students := v1.Group("/students")
+		students.Use(hm.authMiddleware.RequireRoleMiddleware(models.RoleStudent))
+		{
+			students.GET("/me/stats", hm.studentHandler.GetStudentStats)
+			students.GET("/me/assessments", hm.studentHandler.GetStudentAssessments)
+			students.GET("/me/assessments/:id", hm.studentHandler.GetStudentAssessmentDetail)
+			students.GET("/me/attempts", hm.studentHandler.GetStudentAttempts)
 		}
 	}
 

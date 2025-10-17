@@ -241,19 +241,53 @@ func (s *assessmentService) Delete(ctx context.Context, id uint, userID string) 
 // ===== LIST AND SEARCH OPERATIONS =====
 
 func (s *assessmentService) List(ctx context.Context, filters repositories.AssessmentFilters, userID string) (*AssessmentListResponse, error) {
-	// For non-admin users, limit to their own assessments
+	// Filter based on user role
 	userRole, err := s.getUserRole(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if userRole != models.RoleAdmin {
+	// Apply role-based filtering
+	switch userRole {
+	case models.RoleStudent:
+		// Students: only Active assessments that haven't expired
+		activeStatus := models.StatusActive
+		filters.Status = &activeStatus
+
+	case models.RoleTeacher:
+		// Teachers: only their own assessments
 		filters.CreatedBy = &userID
+
+	case models.RoleAdmin:
+		// Admins: no additional filtering (can see all)
+
+	default:
+		// Unknown role: no access
+		return &AssessmentListResponse{
+			Assessments: []*AssessmentResponse{},
+			Total:       0,
+			Page:        1,
+			Size:        filters.Limit,
+		}, nil
 	}
 
 	assessments, total, err := s.repo.Assessment().List(ctx, s.db, filters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list assessments: %w", err)
+	}
+
+	// For students, filter out expired assessments (where due_date has passed)
+	if userRole == models.RoleStudent {
+		now := time.Now()
+		filteredAssessments := make([]*models.Assessment, 0, len(assessments))
+		for _, assessment := range assessments {
+			// Include if no due_date or due_date is in the future
+			if assessment.DueDate == nil || assessment.DueDate.After(now) {
+				filteredAssessments = append(filteredAssessments, assessment)
+			}
+		}
+		assessments = filteredAssessments
+		total = int64(len(filteredAssessments))
 	}
 
 	// Build response
@@ -296,19 +330,53 @@ func (s *assessmentService) GetByCreator(ctx context.Context, creatorID string, 
 }
 
 func (s *assessmentService) Search(ctx context.Context, query string, filters repositories.AssessmentFilters, userID string) (*AssessmentListResponse, error) {
-	// For non-admin users, limit to their own assessments
+	// Filter based on user role
 	userRole, err := s.getUserRole(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if userRole != models.RoleAdmin {
+	// Apply role-based filtering (same as List)
+	switch userRole {
+	case models.RoleStudent:
+		// Students: only Active assessments that haven't expired
+		activeStatus := models.StatusActive
+		filters.Status = &activeStatus
+
+	case models.RoleTeacher:
+		// Teachers: only their own assessments
 		filters.CreatedBy = &userID
+
+	case models.RoleAdmin:
+		// Admins: no additional filtering (can see all)
+
+	default:
+		// Unknown role: no access
+		return &AssessmentListResponse{
+			Assessments: []*AssessmentResponse{},
+			Total:       0,
+			Page:        1,
+			Size:        filters.Limit,
+		}, nil
 	}
 
 	assessments, total, err := s.repo.Assessment().Search(ctx, nil, query, filters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search assessments: %w", err)
+	}
+
+	// For students, filter out expired assessments (where due_date has passed)
+	if userRole == models.RoleStudent {
+		now := time.Now()
+		filteredAssessments := make([]*models.Assessment, 0, len(assessments))
+		for _, assessment := range assessments {
+			// Include if no due_date or due_date is in the future
+			if assessment.DueDate == nil || assessment.DueDate.After(now) {
+				filteredAssessments = append(filteredAssessments, assessment)
+			}
+		}
+		assessments = filteredAssessments
+		total = int64(len(filteredAssessments))
 	}
 
 	// Build response

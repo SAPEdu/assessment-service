@@ -359,6 +359,7 @@ type ServiceManager interface {
 	Attempt() AttemptService
 	Grading() GradingService
 	Dashboard() DashboardService
+	Student() StudentService
 
 	// Additional service getters
 	ImportExport() ImportExportService

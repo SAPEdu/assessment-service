@@ -39,6 +39,8 @@ tags:
     description: Hệ thống chấm điểm
   - name: dashboard
     description: Dashboard statistics and analytics
+  - name: students
+    description: Student panel endpoints
   - name: health
     description: Health check endpoints
 
@@ -100,7 +102,13 @@ paths:
       tags:
         - assessments
       summary: Danh sách bài thi
-      description: Lấy danh sách bài thi với bộ lọc
+      description: |
+        Lấy danh sách bài thi với bộ lọc.
+
+        **Role-based filtering:**
+        - **Students:** Chỉ thấy assessments Active và chưa quá due_date
+        - **Teachers:** Chỉ thấy assessments của chính họ
+        - **Admins:** Thấy tất cả assessments
       parameters:
         - name: page
           in: query
@@ -148,7 +156,13 @@ paths:
       tags:
         - assessments
       summary: Tìm kiếm bài thi
-      description: Tìm kiếm bài thi theo từ khóa
+      description: |
+        Tìm kiếm bài thi theo từ khóa.
+
+        **Role-based filtering:**
+        - **Students:** Chỉ thấy assessments Active và chưa quá due_date
+        - **Teachers:** Chỉ thấy assessments của chính họ
+        - **Admins:** Thấy tất cả assessments
       parameters:
         - name: q
           in: query
@@ -2572,8 +2586,14 @@ paths:
     get:
       tags:
         - attempts
-      summary: Lần thử theo học sinh
-      description: Lấy danh sách lần thử của một học sinh cụ thể
+      summary: Lần thử theo học sinh (Teachers/Admins only)
+      description: |
+        Lấy danh sách lần thử của một học sinh cụ thể.
+
+        **Yêu cầu phân quyền:** Chỉ Teachers và Admins có thể truy cập endpoint này.
+
+        **Lưu ý bảo mật:** Students không thể sử dụng endpoint này để xem attempts của học sinh khác.
+        Students nên sử dụng `/api/v1/students/me/attempts` để xem attempts của chính mình.
       parameters:
         - name: student_id
           in: path
@@ -3272,6 +3292,170 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SubjectPerformance'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Student Endpoints
+  /api/v1/students/me/stats:
+    get:
+      tags:
+        - students
+      summary: Get student statistics
+      description: Lấy thống kê tổng quan cho student hiện tại (dashboard stats)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Student statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentStatsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/students/me/assessments:
+    get:
+      tags:
+        - students
+      summary: Get available assessments for student
+      description: Lấy danh sách assessments available cho student hiện tại với student-specific context
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          description: Page size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [available, in_progress, completed, expired]
+        - name: sort_by
+          in: query
+          description: Sort field
+          schema:
+            type: string
+            enum: [due_date, created_at, title]
+            default: created_at
+      responses:
+        '200':
+          description: Assessments retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentAssessmentsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/students/me/assessments/{id}:
+    get:
+      tags:
+        - students
+      summary: Get assessment detail with student context
+      description: Lấy chi tiết assessment với student-specific context (attempts history, scores, etc.)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Assessment ID
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Assessment detail retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentAssessmentDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/students/me/attempts:
+    get:
+      tags:
+        - students
+      summary: Get student attempt history
+      description: Lấy lịch sử attempts của student hiện tại (an toàn hơn /attempts/student/{id})
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          description: Page size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: assessment_id
+          in: query
+          description: Filter by assessment ID
+          schema:
+            type: integer
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [in_progress, completed, abandoned, timeout]
+        - name: from_date
+          in: query
+          description: Filter from date (RFC3339 format)
+          schema:
+            type: string
+            format: date-time
+        - name: to_date
+          in: query
+          description: Filter to date (RFC3339 format)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Attempts retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentAttemptsResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4928,3 +5112,265 @@ components:
         total_attempts:
           type: integer
           example: 234
+
+    # Student Panel Schemas
+    StudentStatsResponse:
+      type: object
+      properties:
+        overview:
+          type: object
+          properties:
+            total_assessments_available:
+              type: integer
+              example: 5
+            total_assessments_completed:
+              type: integer
+              example: 15
+            total_assessments_in_progress:
+              type: integer
+              example: 2
+            total_attempts:
+              type: integer
+              example: 28
+        performance:
+          type: object
+          properties:
+            average_score:
+              type: number
+              format: float
+              example: 78.5
+            pass_rate:
+              type: number
+              format: float
+              example: 85.0
+            highest_score:
+              type: number
+              format: float
+              example: 98.0
+            lowest_score:
+              type: number
+              format: float
+              example: 45.0
+        recent_attempts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                example: 123
+              assessment_id:
+                type: integer
+                example: 45
+              assessment_title:
+                type: string
+                example: "Toán học lớp 12"
+              score:
+                type: number
+                format: float
+                example: 85.0
+              passed:
+                type: boolean
+                example: true
+              completed_at:
+                type: string
+                format: date-time
+              time_spent:
+                type: integer
+                description: Time spent in seconds
+                example: 3600
+        upcoming_assessments:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                example: 46
+              title:
+                type: string
+                example: "Vật lý lớp 12"
+              due_date:
+                type: string
+                format: date-time
+                nullable: true
+              days_remaining:
+                type: integer
+                example: 4
+
+    StudentAssessmentsResponse:
+      type: object
+      properties:
+        assessments:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentAssessmentItem'
+        total:
+          type: integer
+          example: 25
+        page:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 10
+        total_pages:
+          type: integer
+          example: 3
+
+    StudentAssessmentItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: "Toán học lớp 12"
+        description:
+          type: string
+          nullable: true
+          example: "Bài kiểm tra chương 1"
+        duration:
+          type: integer
+          description: Duration in minutes
+          example: 60
+        passing_score:
+          type: number
+          format: float
+          example: 70.0
+        status:
+          type: string
+          enum: [Draft, Active, Expired, Archived]
+          example: "Active"
+        due_date:
+          type: string
+          format: date-time
+          nullable: true
+        questions_count:
+          type: integer
+          example: 20
+        total_points:
+          type: integer
+          example: 100
+        attempts_used:
+          type: integer
+          example: 1
+        max_attempts:
+          type: integer
+          example: 3
+        can_start:
+          type: boolean
+          example: true
+        has_active_attempt:
+          type: boolean
+          example: false
+        best_score:
+          type: number
+          format: float
+          nullable: true
+          example: 85.0
+        last_attempt_date:
+          type: string
+          format: date-time
+          nullable: true
+
+    StudentAssessmentDetailResponse:
+      type: object
+      properties:
+        assessment:
+          $ref: '#/components/schemas/AssessmentResponse'
+        student_context:
+          type: object
+          properties:
+            attempts_used:
+              type: integer
+              example: 2
+            max_attempts:
+              type: integer
+              example: 3
+            can_start:
+              type: boolean
+              example: true
+            has_active_attempt:
+              type: boolean
+              example: false
+            attempts_history:
+              type: array
+              items:
+                $ref: '#/components/schemas/StudentAttemptItem'
+            best_score:
+              type: number
+              format: float
+              nullable: true
+              example: 85.0
+            average_score:
+              type: number
+              format: float
+              nullable: true
+              example: 80.0
+
+    StudentAttemptsResponse:
+      type: object
+      properties:
+        attempts:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentAttemptItem'
+        total:
+          type: integer
+          example: 28
+        page:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 10
+        total_pages:
+          type: integer
+          example: 3
+
+    StudentAttemptItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 123
+        assessment_id:
+          type: integer
+          example: 45
+        assessment_title:
+          type: string
+          example: "Toán học lớp 12"
+        status:
+          type: string
+          enum: [in_progress, completed, abandoned, timeout]
+          example: "completed"
+        score:
+          type: number
+          format: float
+          example: 85.0
+        max_score:
+          type: integer
+          example: 100
+        passed:
+          type: boolean
+          example: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        time_spent:
+          type: integer
+          description: Time spent in seconds
+          example: 5400
+        questions_answered:
+          type: integer
+          example: 18
+        total_questions:
+          type: integer
+          example: 20

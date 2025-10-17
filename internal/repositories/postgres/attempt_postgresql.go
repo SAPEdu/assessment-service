@@ -55,7 +55,8 @@ func (a *AttemptPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.DB,
 	if err := db.WithContext(ctx).
 		Preload("Student").
 		Preload("Assessment").
-		Preload("ProctoringEvents").
+		Preload("Answers").
+		// Preload("ProctoringEvents").
 		First(&attempt, id).Error; err != nil {
 		return nil, err
 	}
@@ -156,9 +157,9 @@ func (a *AttemptPostgreSQL) GetActiveAttempt(ctx context.Context, tx *gorm.DB, s
 		Preload("Student").
 		Preload("Assessment").
 		First(&attempt).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
+		//if errors.Is(err, gorm.ErrRecordNotFound) {
+		//	return nil, NotExis
+		//}
 		return nil, err
 	}
 
@@ -415,27 +416,27 @@ func (a *AttemptPostgreSQL) GetStudentAttemptStats(ctx context.Context, tx *gorm
 		return nil, err
 	}
 
-	// Average Score
+	// Average Score - Use COALESCE to handle NULL when no completed attempts
 	if err := a.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
 		Where("student_id = ? AND status = ?", studentID, models.AttemptCompleted).
-		Select("AVG(score)").Scan(&avgScore).Error; err != nil {
+		Select("COALESCE(AVG(score), 0)").Scan(&avgScore).Error; err != nil {
 		return nil, err
 	}
 
-	// Best Score
+	// Best Score - Use COALESCE to handle NULL when no completed attempts
 	if err := a.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
 		Where("student_id = ? AND status = ?", studentID, models.AttemptCompleted).
-		Select("MAX(score)").Scan(&bestScore).Error; err != nil {
+		Select("COALESCE(MAX(score), 0)").Scan(&bestScore).Error; err != nil {
 		return nil, err
 	}
 
-	// Total Time Spent
+	// Total Time Spent - Use COALESCE to handle NULL when no completed attempts
 	if err := a.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
 		Where("student_id = ? AND status = ?", studentID, models.AttemptCompleted).
-		Select("SUM(time_spent)").Scan(&totalTimeSpent).Error; err != nil {
+		Select("COALESCE(SUM(time_spent), 0)").Scan(&totalTimeSpent).Error; err != nil {
 		return nil, err
 	}
 
