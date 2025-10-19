@@ -2259,7 +2259,7 @@ paths:
       tags:
         - attempts
       summary: Thời gian còn lại
-      description: Lấy thời gian còn lại của lần thử
+      description: Lấy thời gian còn lại của lần thử (tính bằng giây)
       parameters:
         - name: id
           in: path
@@ -2276,16 +2276,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  time_remaining:
+                  message:
+                    type: string
+                    example: "Time remaining retrieved successfully"
+                  data:
                     type: integer
                     description: Thời gian còn lại (giây)
-                  total_time:
-                    type: integer
-                    description: Tổng thời gian (giây)
-                  percentage:
-                    type: number
-                    format: float
-                    description: Phần trăm thời gian đã sử dụng
+                    example: 3600
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -2388,14 +2385,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  is_active:
+                  message:
+                    type: string
+                    example: "Active check completed"
+                  data:
                     type: boolean
                     description: Có đang hoạt động không
-                  status:
-                    $ref: '#/components/schemas/AttemptStatus'
-                  time_remaining:
-                    type: integer
-                    description: Thời gian còn lại (giây)
+                    example: true
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -2456,22 +2452,13 @@ paths:
               schema:
                 type: object
                 properties:
+                  message:
+                    type: string
+                    example: "Can start attempt check completed"
                   can_start:
                     type: boolean
                     description: Có thể bắt đầu không
-                  reason:
-                    type: string
-                    description: Lý do nếu không thể bắt đầu
-                  attempts_used:
-                    type: integer
-                    description: Số lần thử đã sử dụng
-                  max_attempts:
-                    type: integer
-                    description: Số lần thử tối đa
-                  next_attempt_time:
-                    type: string
-                    format: date-time
-                    description: Thời gian có thể thử lần tiếp theo
+                    example: true
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -2499,18 +2486,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  total_attempts:
+                  message:
+                    type: string
+                    example: "Attempt count retrieved successfully"
+                  data:
                     type: integer
-                    description: Tổng số lần thử
-                  completed_attempts:
-                    type: integer
-                    description: Số lần thử hoàn thành
-                  in_progress_attempts:
-                    type: integer
-                    description: Số lần thử đang thực hiện
-                  max_attempts:
-                    type: integer
-                    description: Số lần thử tối đa
+                    description: Số lần thử
+                    example: 3
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -3899,22 +3881,28 @@ components:
           type: integer
           minimum: 0
           description: Thời gian trả lời (giây)
-        flagged:
-          type: boolean
-          description: Đánh dấu để xem lại
 
     CompleteAttemptRequest:
       type: object
+      required: [attempt_id, answers]
       properties:
-        final_answers:
+        attempt_id:
+          type: integer
+          format: uint32
+          description: ID lần thử
+        answers:
           type: array
           items:
             $ref: '#/components/schemas/SubmitAnswerRequest'
-          description: Câu trả lời cuối cùng
+          description: Danh sách câu trả lời
         time_spent:
           type: integer
           minimum: 0
           description: Tổng thời gian làm bài (giây)
+        end_reason:
+          type: string
+          description: Lý do kết thúc (timeout, manual_submit, auto_submit)
+          example: "manual_submit"
 
     GradeAnswerRequest:
       type: object
@@ -4550,28 +4538,30 @@ components:
 
     PaginatedAttemptResponse:
       type: object
+      description: Danh sách lần thử có phân trang
       properties:
-        content:
+        data:
           type: array
           items:
             $ref: '#/components/schemas/AttemptResponse'
-        total_elements:
+          description: Danh sách lần thử
+        total:
           type: integer
           format: int64
-        total_pages:
-          type: integer
-        size:
-          type: integer
+          description: Tổng số lần thử
+          example: 100
         page:
           type: integer
-        first:
-          type: boolean
-        last:
-          type: boolean
-        number_of_elements:
+          description: Số trang hiện tại
+          example: 1
+        size:
           type: integer
-        empty:
-          type: boolean
+          description: Kích thước trang
+          example: 10
+        total_pages:
+          type: integer
+          description: Tổng số trang
+          example: 10
 
     TimeBucket:
       type: object
@@ -4751,78 +4741,72 @@ components:
     # Pagination
     PaginatedAssessmentResponse:
       type: object
+      description: Danh sách bài thi có phân trang
       properties:
-        content:
+        assessments:
           type: array
           items:
             $ref: '#/components/schemas/AssessmentResponse'
-        total_elements:
+          description: Danh sách bài thi
+        total:
           type: integer
           format: int64
-        total_pages:
-          type: integer
-        size:
-          type: integer
+          description: Tổng số bài thi
+          example: 100
         page:
           type: integer
-        first:
-          type: boolean
-        last:
-          type: boolean
-        number_of_elements:
+          description: Số trang hiện tại
+          example: 1
+        size:
           type: integer
-        empty:
-          type: boolean
+          description: Kích thước trang
+          example: 10
 
     PaginatedQuestionResponse:
       type: object
+      description: Danh sách câu hỏi có phân trang
       properties:
-        content:
+        questions:
           type: array
           items:
             $ref: '#/components/schemas/QuestionResponse'
-        total_elements:
+          description: Danh sách câu hỏi
+        total:
           type: integer
           format: int64
-        total_pages:
-          type: integer
-        size:
-          type: integer
+          description: Tổng số câu hỏi
+          example: 100
         page:
           type: integer
-        first:
-          type: boolean
-        last:
-          type: boolean
-        number_of_elements:
+          description: Số trang hiện tại
+          example: 1
+        size:
           type: integer
-        empty:
-          type: boolean
+          description: Kích thước trang
+          example: 10
 
     PaginatedQuestionBankResponse:
       type: object
+      description: Danh sách ngân hàng câu hỏi có phân trang
       properties:
-        content:
+        banks:
           type: array
           items:
             $ref: '#/components/schemas/QuestionBankResponse'
-        total_elements:
+          description: Danh sách ngân hàng câu hỏi
+        total:
           type: integer
           format: int64
-        total_pages:
-          type: integer
-        size:
-          type: integer
+          description: Tổng số ngân hàng câu hỏi
+          example: 100
         page:
           type: integer
-        first:
-          type: boolean
-        last:
-          type: boolean
-        number_of_elements:
+          description: Số trang hiện tại
+          example: 1
+        size:
           type: integer
-        empty:
-          type: boolean
+          description: Kích thước trang
+          example: 10
 
     User:
       type: object
@@ -4902,39 +4886,45 @@ components:
 
     ErrorResponse:
       type: object
+      description: |
+        Cấu trúc response lỗi chuẩn.
+
+        **Lưu ý:** Backend hiện tại chỉ implement các fields cơ bản (message, details, code).
+        Các fields nâng cao khác (error, timestamp, path, validation_errors, business_rule_violations)
+        được định nghĩa để mở rộng trong tương lai.
       properties:
-        error:
-          type: string
-          description: Mã lỗi
-          example: "VALIDATION_FAILED"
         message:
           type: string
-          description: Thông báo lỗi
+          description: Thông báo lỗi (LUÔN có)
           example: "Dữ liệu đầu vào không hợp lệ"
-        code:
-          type: string
-          description: Mã lỗi chi tiết
-          example: "INVALID_INPUT"
         details:
           type: object
           description: Chi tiết lỗi (tùy chọn)
+        code:
+          type: string
+          description: Mã lỗi chi tiết (tùy chọn)
+          example: "INVALID_INPUT"
+        error:
+          type: string
+          description: Mã lỗi tổng quát (tùy chọn, chưa implement)
+          example: "VALIDATION_FAILED"
         timestamp:
           type: string
           format: date-time
-          description: Thời gian
+          description: Thời gian (tùy chọn, chưa implement)
         path:
           type: string
-          description: Đường dẫn API gây lỗi
+          description: Đường dẫn API gây lỗi (tùy chọn, chưa implement)
         validation_errors:
           type: array
           items:
             $ref: '#/components/schemas/ValidationErrorResponse'
-          description: Lỗi validation chi tiết
+          description: Lỗi validation chi tiết (tùy chọn, chưa implement)
         business_rule_violations:
           type: array
           items:
             $ref: '#/components/schemas/BusinessRuleViolation'
-          description: Vi phạm quy tắc nghiệp vụ
+          description: Vi phạm quy tắc nghiệp vụ (tùy chọn, chưa implement)
 
     ValidationErrorResponse:
       type: object
