@@ -83,8 +83,8 @@ func (s *attemptService) Start(ctx context.Context, req *StartAttemptRequest, st
 			TimeRemaining: assessment.Duration * 60, // Convert minutes to seconds
 		}
 
-		// Calculate end time
-		endTime := attempt.StartedAt.Add(time.Duration(assessment.Duration) * time.Second)
+		// Calculate end time (Duration is in minutes, convert to time)
+		endTime := attempt.StartedAt.Add(time.Duration(assessment.Duration) * time.Minute)
 		attempt.EndedAt = &endTime
 
 		if err = s.repo.Attempt().Create(ctx, tx, attempt); err != nil {
@@ -179,6 +179,11 @@ func (s *attemptService) Submit(ctx context.Context, req *SubmitAttemptRequest, 
 	// Check if already submitted
 	if attempt.Status == models.AttemptCompleted {
 		return nil, ErrAttemptAlreadySubmitted
+	}
+
+	// Check if attempt has expired
+	if attempt.EndedAt != nil && time.Now().After(*attempt.EndedAt) {
+		return nil, ErrAttemptTimeExpired
 	}
 
 	// Begin transaction

@@ -262,6 +262,7 @@ func (s *questionService) applyQuestionUpdates(question *models.Question, req *U
 		question.Points = *req.Points
 	}
 
+	// NOTE: TimeLimit is stored but NOT used in attempt timing logic. Assessment.Duration is used instead.
 	if req.TimeLimit != nil {
 		question.TimeLimit = req.TimeLimit
 	}

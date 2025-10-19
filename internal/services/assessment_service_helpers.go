@@ -323,7 +323,7 @@ func (s *assessmentService) applySettingsUpdates(settings *models.AssessmentSett
 func (s *assessmentService) addQuestionsToAssessment(ctx context.Context, tx *gorm.DB, assessmentID uint, questions []AssessmentQuestionRequest, userID string) error {
 	for _, qReq := range questions {
 		// Add question to assessment
-		if err := s.repo.AssessmentQuestion().AddQuestion(ctx, tx, assessmentID, qReq.QuestionID, qReq.Order, qReq.Points); err != nil {
+		if err := s.repo.AssessmentQuestion().AddQuestion(ctx, tx, assessmentID, qReq.QuestionID, qReq.Order, &qReq.Points); err != nil {
 			return fmt.Errorf("failed to add question %d to assessment: %w", qReq.QuestionID, err)
 		}
 	}
@@ -353,6 +353,8 @@ func (s *assessmentService) validateCreateRequest(ctx context.Context, req *Crea
 	// Validate questions if provided
 	if len(req.Questions) > 0 {
 		orderMap := make(map[int]bool)
+		totalPoints := 0
+
 		for i, q := range req.Questions {
 			// Check for duplicate orders
 			if orderMap[q.Order] {
@@ -369,6 +371,15 @@ func (s *assessmentService) validateCreateRequest(ctx context.Context, req *Crea
 					return fmt.Errorf("failed to validate question %d: %w", q.QuestionID, err)
 				}
 			}
+
+			// Accumulate points for total validation
+			totalPoints += q.Points
+		}
+
+		// Validate total points does not exceed 100
+		if totalPoints > 100 {
+			errors = append(errors, *NewValidationError("questions",
+				fmt.Sprintf("total points (%d) exceeds maximum allowed (100)", totalPoints), totalPoints))
 		}
 	}
 
@@ -530,4 +541,139 @@ func (s *assessmentService) getAssessmentWithDetails(ctx context.Context, id uin
 // listAssessments is a wrapper for assessment listing
 func (s *assessmentService) listAssessments(ctx context.Context, filters repositories.AssessmentFilters) ([]*models.Assessment, int64, error) {
 	return s.repo.Assessment().List(ctx, s.db, filters)
+}
+
+// ===== POINTS VALIDATION =====
+
+// validateTotalPoints validates that total points for assessment does not exceed 100
+// pointsToAdd: points for the new question being added (use 0 if not adding)
+// excludeQuestionID: question ID to exclude from total (use when updating existing question's points)
+func (s *assessmentService) validateTotalPoints(ctx context.Context, tx *gorm.DB, assessmentID uint, pointsToAdd int, excludeQuestionID uint) error {
+	db := s.db
+	if tx != nil {
+		db = tx
+	}
+
+	// Get current total points
+	currentTotal, err := s.repo.AssessmentQuestion().GetTotalPoints(ctx, db, assessmentID)
+	if err != nil {
+		return fmt.Errorf("failed to get total points: %w", err)
+	}
+
+	// If excluding a question (when updating), subtract its current points
+	if excludeQuestionID != 0 {
+		assessmentQuestion, err := s.repo.AssessmentQuestion().GetQuestionAssessmentByAssessmentIdAndQuestionId(ctx, db, assessmentID, excludeQuestionID)
+		if err == nil && assessmentQuestion.Points != nil {
+			currentTotal -= *assessmentQuestion.Points
+		}
+	}
+
+	// Calculate new total
+	newTotal := currentTotal + pointsToAdd
+
+	// Validate
+	if newTotal > 100 {
+		return fmt.Errorf("total points (%d) would exceed maximum allowed (100). Current total: %d, adding: %d",
+			newTotal, currentTotal, pointsToAdd)
+	}
+
+	return nil
+}
+
+// calculateAutoAssignPoints calculates points distribution for auto-assigning questions
+// Formula: Divide 100 points evenly among ALL questions (existing + new)
+// This rebalances ALL questions in the assessment to have equal points
+// Returns: points per question (all questions get same value)
+func (s *assessmentService) calculateAutoAssignPoints(ctx context.Context, tx *gorm.DB, assessmentID uint, newQuestionCount int) (int, int, error) {
+	db := s.db
+	if tx != nil {
+		db = tx
+	}
+
+	// Get current question count
+	var currentQuestionCount int64
+	if err := db.Model(&models.AssessmentQuestion{}).
+		Where("assessment_id = ?", assessmentID).
+		Count(&currentQuestionCount).Error; err != nil {
+		return 0, 0, fmt.Errorf("failed to count current questions: %w", err)
+	}
+
+	// Calculate total questions (existing + new)
+	totalQuestions := int(currentQuestionCount) + newQuestionCount
+
+	// Validate we can have at least 1 point per question
+	if totalQuestions > 100 {
+		return 0, 0, fmt.Errorf(
+			"cannot add %d questions: total would be %d questions, exceeding maximum of 100 (need minimum 1 point per question)",
+			newQuestionCount, totalQuestions,
+		)
+	}
+
+	if totalQuestions == 0 {
+		return 0, 0, fmt.Errorf("cannot calculate points for 0 questions")
+	}
+
+	// Calculate base points and remainder for ALL questions
+	// Formula: 100 / total_questions
+	basePoints := 100 / totalQuestions
+	remainder := 100 % totalQuestions
+
+	return basePoints, remainder, nil
+}
+
+// validateAssessmentQuestionsEditable checks if an assessment's questions can be modified
+// This prevents editing questions when assessment is Active/Expired and has attempts
+func (s *assessmentService) validateAssessmentQuestionsEditable(ctx context.Context, tx *gorm.DB, assessmentID uint) error {
+	db := s.db
+	if tx != nil {
+		db = tx
+	}
+
+	// Get assessment
+	assessment, err := s.repo.Assessment().GetByID(ctx, db, assessmentID)
+	if err != nil {
+		if repositories.IsNotFoundError(err) {
+			return ErrAssessmentNotFound
+		}
+		return fmt.Errorf("failed to get assessment: %w", err)
+	}
+
+	// Draft assessments can always be edited
+	if assessment.Status == models.StatusDraft {
+		return nil
+	}
+
+	// Archived assessments cannot be edited
+	if assessment.Status == models.StatusArchived {
+		return NewBusinessRuleError(
+			"assessment_questions_locked",
+			"cannot modify questions: assessment is archived",
+			map[string]interface{}{
+				"assessment_id": assessmentID,
+				"status":        assessment.Status,
+			},
+		)
+	}
+
+	// For Active/Expired assessments, check if there are any attempts
+	if assessment.Status == models.StatusActive || assessment.Status == models.StatusExpired {
+		hasAttempts, err := s.repo.Assessment().HasAttempts(ctx, db, assessmentID)
+		if err != nil {
+			return fmt.Errorf("failed to check attempts: %w", err)
+		}
+
+		if hasAttempts {
+			return NewBusinessRuleError(
+				"assessment_questions_locked",
+				"cannot modify questions: assessment has active student attempts. Modifying questions would invalidate existing attempt scores.",
+				map[string]interface{}{
+					"assessment_id": assessmentID,
+					"status":        assessment.Status,
+					"has_attempts":  true,
+				},
+			)
+		}
+	}
+
+	return nil
 }

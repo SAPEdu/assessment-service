@@ -245,7 +245,7 @@ func (s *gradingService) AutoGradeAnswer(ctx context.Context, answerID uint) (*G
 	s.logger.Debug("Auto-grading answer", "answer_id", answerID)
 
 	// Get answer with question details
-	answer, err := s.repo.Answer().GetByIDWithDetails(ctx, nil, answerID)
+	answer, err := s.repo.Answer().GetByIDWithDetails(ctx, s.db, answerID)
 	if err != nil {
 		if repositories.IsNotFoundError(err) {
 			return nil, fmt.Errorf("answer not found")
@@ -286,9 +286,10 @@ func (s *gradingService) AutoGradeAnswer(ctx context.Context, answerID uint) (*G
 	answer.Feedback = feedback
 	answer.GradedAt = timePtr(time.Now())
 	answer.IsGraded = true
+	answer.IsCorrect = &isCorrect
 	// Note: GradedBy is nil for auto-graded answers
 
-	if err := s.repo.Answer().Update(ctx, nil, answer); err != nil {
+	if err := s.repo.Answer().Update(ctx, s.db, answer); err != nil {
 		return nil, fmt.Errorf("failed to update answer with auto-grade: %w", err)
 	}
 
@@ -316,7 +317,7 @@ func (s *gradingService) AutoGradeAttempt(ctx context.Context, attemptID uint) (
 	s.logger.Info("Auto-grading attempt", "attempt_id", attemptID)
 
 	// Get attempt with details
-	attempt, err := s.repo.Attempt().GetByIDWithDetails(ctx, nil, attemptID)
+	attempt, err := s.repo.Attempt().GetByIDWithDetails(ctx, s.db, attemptID)
 	if err != nil {
 		if repositories.IsNotFoundError(err) {
 			return nil, fmt.Errorf("attempt not found")
@@ -325,7 +326,7 @@ func (s *gradingService) AutoGradeAttempt(ctx context.Context, attemptID uint) (
 	}
 
 	// Get all answers for attempt
-	answers, err := s.repo.Answer().GetByAttempt(ctx, nil, attemptID)
+	answers, err := s.repo.Answer().GetByAttempt(ctx, s.db, attemptID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get attempt answers: %w", err)
 	}
@@ -379,7 +380,7 @@ func (s *gradingService) AutoGradeAttempt(ctx context.Context, attemptID uint) (
 	}
 
 	// Get assessment to check passing score
-	assessment, err := s.repo.Assessment().GetByID(ctx, nil, attempt.AssessmentID)
+	assessment, err := s.repo.Assessment().GetByID(ctx, s.db, attempt.AssessmentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get assessment: %w", err)
 	}
@@ -394,7 +395,7 @@ func (s *gradingService) AutoGradeAttempt(ctx context.Context, attemptID uint) (
 		attempt.Passed = isPassing
 		// GradedBy is nil for auto-graded attempts
 
-		if err := s.repo.Attempt().Update(ctx, nil, attempt); err != nil {
+		if err := s.repo.Attempt().Update(ctx, s.db, attempt); err != nil {
 			return nil, fmt.Errorf("failed to update attempt grade: %w", err)
 		}
 	}

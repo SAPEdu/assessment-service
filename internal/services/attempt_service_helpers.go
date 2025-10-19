@@ -8,6 +8,7 @@ import (
 
 	"github.com/SAP-F-2025/assessment-service/internal/models"
 	"github.com/SAP-F-2025/assessment-service/internal/repositories"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -155,7 +156,7 @@ func (s *attemptService) CanStart(ctx context.Context, assessmentID uint, studen
 	}
 
 	// Get assessment to check attempt limits
-	assessment, err := s.repo.Assessment().GetByID(ctx, nil, assessmentID)
+	assessment, err := s.repo.Assessment().GetByID(ctx, s.db, assessmentID)
 	if err != nil {
 		return false, err
 	}
@@ -288,6 +289,29 @@ func (s *attemptService) buildAttemptResponse(ctx context.Context, attempt *mode
 		if err != nil {
 			s.logger.Error("Failed to get attempt questions", "attempt_id", attempt.ID, "error", err)
 		} else {
+			// Check if we should show correct answers
+			showCorrectAnswers, err := s.shouldShowCorrectAnswers(ctx, attempt)
+			if err != nil {
+				s.logger.Error("Failed to check shouldShowCorrectAnswers, defaulting to hide",
+					"attempt_id", attempt.ID,
+					"error", err)
+				showCorrectAnswers = false
+			}
+
+			// Sanitize questions if we should not show correct answers
+			if !showCorrectAnswers {
+				questions = s.removeCorrectAnswersFromQuestions(questions)
+				s.logger.Debug("Correct answers removed from questions",
+					"attempt_id", attempt.ID,
+					"status", attempt.Status,
+					"student_id", userID)
+			} else {
+				s.logger.Debug("Showing correct answers",
+					"attempt_id", attempt.ID,
+					"status", attempt.Status,
+					"student_id", userID)
+			}
+
 			response.Questions = questions
 		}
 	}
@@ -375,14 +399,237 @@ func (s *attemptService) updateAttemptAnswer(ctx context.Context, tx *gorm.DB, a
 
 	// Upsert answer
 	if answer.ID == 0 {
-		if err := s.repo.Answer().Create(ctx, s.db, answer); err != nil {
+		if err := s.repo.Answer().Create(ctx, tx, answer); err != nil {
 			return fmt.Errorf("failed to create answer: %w", err)
 		}
 	} else {
-		if err := s.repo.Answer().Update(ctx, s.db, answer); err != nil {
+		if err := s.repo.Answer().Update(ctx, tx, answer); err != nil {
 			return fmt.Errorf("failed to update answer: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// ===== ANSWER SANITIZATION HELPERS =====
+
+// shouldShowCorrectAnswers determines if correct answers should be shown based on attempt status and settings
+func (s *attemptService) shouldShowCorrectAnswers(ctx context.Context, attempt *models.AssessmentAttempt) (bool, error) {
+	// NEVER show correct answers during in_progress
+	if attempt.Status == models.AttemptInProgress {
+		return false, nil
+	}
+
+	// For completed/timeout attempts, check settings
+	if attempt.Status == models.AttemptCompleted || attempt.Status == models.AttemptTimeOut {
+		settings, err := s.repo.Assessment().GetSettings(ctx, s.db, attempt.AssessmentID)
+		if err != nil {
+			// If settings not found, default to not showing
+			s.logger.Warn("Failed to get assessment settings, defaulting to hide answers",
+				"assessment_id", attempt.AssessmentID,
+				"error", err)
+			return false, nil
+		}
+
+		return settings.ShowCorrectAnswers, nil
+	}
+
+	// For other statuses (abandoned), don't show
+	return false, nil
+}
+
+// removeCorrectAnswersFromQuestions removes correct answers from all questions
+func (s *attemptService) removeCorrectAnswersFromQuestions(questions []QuestionForAttempt) []QuestionForAttempt {
+	sanitized := make([]QuestionForAttempt, len(questions))
+	for i, q := range questions {
+		sanitized[i] = QuestionForAttempt{
+			Question: s.removeCorrectAnswersFromQuestion(q.Question),
+			IsFirst:  q.IsFirst,
+			IsLast:   q.IsLast,
+		}
+	}
+	return sanitized
+}
+
+// removeCorrectAnswersFromQuestion removes correct answer fields from a question
+func (s *attemptService) removeCorrectAnswersFromQuestion(question *models.Question) *models.Question {
+	if question == nil {
+		return nil
+	}
+
+	// Create a copy to avoid modifying the original
+	sanitized := *question
+
+	// Clear the Answer field (this contains the correct answer)
+	sanitized.Answer = nil
+
+	// Sanitize Content based on question type
+	if question.Content != nil {
+		sanitized.Content = s.sanitizeQuestionContent(question.Type, question.Content)
+	}
+
+	return &sanitized
+}
+
+// sanitizeQuestionContent removes correct answer information from question content based on type
+func (s *attemptService) sanitizeQuestionContent(questionType models.QuestionType, content datatypes.JSON) datatypes.JSON {
+	switch questionType {
+	case models.MultipleChoice:
+		return s.sanitizeMultipleChoiceContent(content)
+	case models.TrueFalse:
+		return s.sanitizeTrueFalseContent(content)
+	case models.Essay:
+		return s.sanitizeEssayContent(content)
+	case models.FillInBlank:
+		return s.sanitizeFillBlankContent(content)
+	case models.Matching:
+		return s.sanitizeMatchingContent(content)
+	case models.Ordering:
+		return s.sanitizeOrderingContent(content)
+	case models.ShortAnswer:
+		return s.sanitizeShortAnswerContent(content)
+	default:
+		return content
+	}
+}
+
+func (s *attemptService) sanitizeMultipleChoiceContent(content datatypes.JSON) datatypes.JSON {
+	var mc models.MultipleChoiceContent
+	if err := json.Unmarshal(content, &mc); err != nil {
+		s.logger.Error("Failed to unmarshal multiple choice content", "error", err)
+		return content
+	}
+
+	// Remove correct answers
+	mc.CorrectAnswers = nil
+
+	sanitized, err := json.Marshal(mc)
+	if err != nil {
+		s.logger.Error("Failed to marshal sanitized multiple choice content", "error", err)
+		return content
+	}
+
+	return sanitized
+}
+
+func (s *attemptService) sanitizeTrueFalseContent(content datatypes.JSON) datatypes.JSON {
+	var tf map[string]interface{}
+	if err := json.Unmarshal(content, &tf); err != nil {
+		s.logger.Error("Failed to unmarshal true/false content", "error", err)
+		return content
+	}
+
+	// Remove correct answer
+	delete(tf, "correct_answer")
+
+	sanitized, err := json.Marshal(tf)
+	if err != nil {
+		s.logger.Error("Failed to marshal sanitized true/false content", "error", err)
+		return content
+	}
+
+	return sanitized
+}
+
+func (s *attemptService) sanitizeEssayContent(content datatypes.JSON) datatypes.JSON {
+	var essay map[string]interface{}
+	if err := json.Unmarshal(content, &essay); err != nil {
+		s.logger.Error("Failed to unmarshal essay content", "error", err)
+		return content
+	}
+
+	// Remove sample answer and keywords used for auto-grading
+	delete(essay, "sample_answer")
+	delete(essay, "key_words")
+
+	sanitized, err := json.Marshal(essay)
+	if err != nil {
+		s.logger.Error("Failed to marshal sanitized essay content", "error", err)
+		return content
+	}
+
+	return sanitized
+}
+
+func (s *attemptService) sanitizeFillBlankContent(content datatypes.JSON) datatypes.JSON {
+	var fb map[string]interface{}
+	if err := json.Unmarshal(content, &fb); err != nil {
+		s.logger.Error("Failed to unmarshal fill blank content", "error", err)
+		return content
+	}
+
+	// Remove accepted answers from blanks
+	if blanks, ok := fb["blanks"].(map[string]interface{}); ok {
+		for key, blank := range blanks {
+			if blankMap, ok := blank.(map[string]interface{}); ok {
+				delete(blankMap, "accepted_answers")
+				blanks[key] = blankMap
+			}
+		}
+	}
+
+	sanitized, err := json.Marshal(fb)
+	if err != nil {
+		s.logger.Error("Failed to marshal sanitized fill blank content", "error", err)
+		return content
+	}
+
+	return sanitized
+}
+
+func (s *attemptService) sanitizeMatchingContent(content datatypes.JSON) datatypes.JSON {
+	var matching map[string]interface{}
+	if err := json.Unmarshal(content, &matching); err != nil {
+		s.logger.Error("Failed to unmarshal matching content", "error", err)
+		return content
+	}
+
+	// Remove correct pairs
+	delete(matching, "correct_pairs")
+
+	sanitized, err := json.Marshal(matching)
+	if err != nil {
+		s.logger.Error("Failed to marshal sanitized matching content", "error", err)
+		return content
+	}
+
+	return sanitized
+}
+
+func (s *attemptService) sanitizeOrderingContent(content datatypes.JSON) datatypes.JSON {
+	var ordering map[string]interface{}
+	if err := json.Unmarshal(content, &ordering); err != nil {
+		s.logger.Error("Failed to unmarshal ordering content", "error", err)
+		return content
+	}
+
+	// Remove correct order
+	delete(ordering, "correct_order")
+
+	sanitized, err := json.Marshal(ordering)
+	if err != nil {
+		s.logger.Error("Failed to marshal sanitized ordering content", "error", err)
+		return content
+	}
+
+	return sanitized
+}
+
+func (s *attemptService) sanitizeShortAnswerContent(content datatypes.JSON) datatypes.JSON {
+	var sa map[string]interface{}
+	if err := json.Unmarshal(content, &sa); err != nil {
+		s.logger.Error("Failed to unmarshal short answer content", "error", err)
+		return content
+	}
+
+	// Remove accepted answers
+	delete(sa, "accepted_answers")
+
+	sanitized, err := json.Marshal(sa)
+	if err != nil {
+		s.logger.Error("Failed to marshal sanitized short answer content", "error", err)
+		return content
+	}
+
+	return sanitized
 }

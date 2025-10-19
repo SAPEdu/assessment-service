@@ -78,6 +78,7 @@ func (s *questionService) Create(ctx context.Context, req *CreateQuestionRequest
 	}
 
 	// Create question
+	// NOTE: TimeLimit is stored but NOT used in attempt timing logic. Assessment.Duration is used instead.
 	question := &models.Question{
 		Type:        req.Type,
 		Text:        req.Text,

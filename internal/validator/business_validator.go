@@ -239,10 +239,10 @@ func (bv *BusinessValidator) registerBusinessRules() {
 		return points >= 1 && points <= 100
 	})
 
-	// Time limit validation
+	// Time limit validation - DEPRECATED: TimeLimit field not used in timing logic, kept for backward compatibility
 	bv.validate.RegisterValidation("time_limit", func(fl validator.FieldLevel) bool {
 		timeLimit := fl.Field().Int()
-		return timeLimit >= 30 && timeLimit <= 3600
+		return timeLimit >= 5 && timeLimit <= 3600
 	})
 
 	// question type validation

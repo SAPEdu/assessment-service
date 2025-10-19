@@ -65,7 +65,9 @@ func (a *AttemptPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.DB,
 
 func (a *AttemptPostgreSQL) Update(ctx context.Context, tx *gorm.DB, attempt *models.AssessmentAttempt) error {
 	db := a.getDB(tx)
-	return db.WithContext(ctx).Save(attempt).Error
+	// Use Select to avoid cascading to associations (Student, Assessment, etc.)
+	// This prevents FK constraint errors when Student doesn't exist in DB yet
+	return db.WithContext(ctx).Model(attempt).Select("*").Omit("Student", "Assessment", "Answers", "ProctoringEvents").Updates(attempt).Error
 }
 
 func (a *AttemptPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) error {
@@ -653,7 +655,27 @@ func (ar *AnswerPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.DB,
 // Update updates an existing answer
 func (ar *AnswerPostgreSQL) Update(ctx context.Context, tx *gorm.DB, answer *models.StudentAnswer) error {
 	db := ar.getDB(tx)
-	if err := db.WithContext(ctx).Save(answer).Error; err != nil {
+	newAnswer := &models.StudentAnswer{
+		ID: answer.ID,
+	}
+	// Use Updates instead of Save to avoid cascading to associations
+	// This prevents foreign key constraint errors when associations are loaded
+	if err := db.WithContext(ctx).Model(newAnswer).Updates(map[string]interface{}{
+		"answer":            answer.Answer,
+		"score":             answer.Score,
+		"max_score":         answer.MaxScore,
+		"is_correct":        answer.IsCorrect,
+		"graded_by":         answer.GradedBy,
+		"graded_at":         answer.GradedAt,
+		"feedback":          answer.Feedback,
+		"time_spent":        answer.TimeSpent,
+		"first_answered_at": answer.FirstAnsweredAt,
+		"last_modified_at":  answer.LastModifiedAt,
+		"answer_history":    answer.AnswerHistory,
+		"flagged":           answer.Flagged,
+		"is_graded":         answer.IsGraded,
+		"updated_at":        answer.UpdatedAt,
+	}).Error; err != nil {
 		return fmt.Errorf("failed to update answer: %w", err)
 	}
 
@@ -777,6 +799,7 @@ func (ar *AnswerPostgreSQL) GetByAttempt(ctx context.Context, tx *gorm.DB, attem
 		if err := db.WithContext(ctx).
 			Where("attempt_id = ?", attemptID).
 			Order("question_id ASC").
+			Preload("Question").
 			Find(&dbAnswers).Error; err != nil {
 			return nil, fmt.Errorf("failed to get answers by attempt: %w", err)
 		}

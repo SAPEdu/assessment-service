@@ -613,9 +613,9 @@ func (h *AttemptHandler) CanStartAttempt(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, SuccessResponse{
-		Message: "Can start check completed",
-		Data:    canStart,
+	c.JSON(http.StatusOK, map[string]interface{}{
+		"message":   "Can start attempt check completed",
+		"can_start": canStart,
 	})
 }
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -492,6 +493,9 @@ func (h *AssessmentHandler) AddQuestionToAssessment(c *gin.Context) {
 
 	order := h.parseIntQuery(c, "order", 0)
 	points := h.parseIntQueryPtr(c, "points")
+	if points == nil {
+		points = new(int)
+	}
 
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -500,7 +504,7 @@ func (h *AssessmentHandler) AddQuestionToAssessment(c *gin.Context) {
 		})
 		return
 	}
-	err := h.assessmentService.AddQuestion(c.Request.Context(), assessmentID, questionID, order, points, userID.(string))
+	err := h.assessmentService.AddQuestion(c.Request.Context(), assessmentID, questionID, order, *points, userID.(string))
 	if err != nil {
 		h.handleServiceError(c, err)
 		return
@@ -762,13 +766,13 @@ func (h *AssessmentHandler) parseAssessmentFilters(c *gin.Context) repositories.
 }
 
 // AddQuestionsToAssessment adds multiple questions to an assessment
-// @Summary Add multiple questions to assessment
-// @Description Adds multiple questions to an assessment in batch
+// @Summary Add multiple questions to assessment (batch)
+// @Description Adds multiple questions to an assessment in a single transaction. Points are required and total must not exceed 100.
 // @Tags assessments
 // @Accept json
 // @Produce json
 // @Param id path uint true "Assessment ID"
-// @Param question_ids body object{question_ids=[]uint} true "Question IDs"
+// @Param request body object{questions=[]object{question_id=uint,order=int,points=int}} true "Questions with points"
 // @Success 200 {object} SuccessResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
@@ -780,7 +784,71 @@ func (h *AssessmentHandler) AddQuestionsToAssessment(c *gin.Context) {
 		return
 	}
 
-	h.LogRequest(c, "Adding multiple questions to assessment", "assessment_id", assessmentID)
+	h.LogRequest(c, "Adding multiple questions to assessment (batch)", "assessment_id", assessmentID)
+
+	var req struct {
+		Questions []struct {
+			QuestionID uint `json:"question_id" binding:"required"`
+			Order      int  `json:"order" binding:"required,min=1"`
+			Points     int  `json:"points" binding:"required,min=1,max=100"`
+		} `json:"questions" binding:"required,min=1,dive"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.RespondWithError(c, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{
+			Message: "User not authenticated",
+		})
+		return
+	}
+
+	// Convert to service DTO
+	questions := make([]services.AssessmentQuestionRequest, len(req.Questions))
+	for i, q := range req.Questions {
+		questions[i] = services.AssessmentQuestionRequest{
+			QuestionID: q.QuestionID,
+			Order:      q.Order,
+			Points:     q.Points,
+		}
+	}
+
+	// Use optimized batch method (single transaction)
+	err := h.assessmentService.AddQuestionsBatch(c.Request.Context(), assessmentID, questions, userID.(string))
+	if err != nil {
+		h.handleServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, SuccessResponse{
+		Message: fmt.Sprintf("Successfully added %d questions to assessment", len(questions)),
+	})
+}
+
+// AutoAssignQuestionsToAssessment adds multiple questions with automatic point distribution
+// @Summary Auto-assign questions to assessment (with rebalancing)
+// @Description Adds multiple questions to an assessment with automatic point distribution. IMPORTANT: This rebalances ALL questions (existing + new) to equal points using formula: 100 / total_questions. Points are calculated as: remaining_points / number_of_questions. No manual point input required. Can only be used when assessment has no student attempts.
+// @Tags assessments
+// @Accept json
+// @Produce json
+// @Param id path uint true "Assessment ID"
+// @Param request body object{question_ids=[]uint} true "Question IDs to add (points will be auto-assigned and ALL questions rebalanced)"
+// @Success 200 {object} SuccessResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 422 {object} ErrorResponse "Assessment locked: has attempts, cannot rebalance"
+// @Failure 500 {object} ErrorResponse
+// @Router /assessments/{id}/questions/auto-assign [post]
+func (h *AssessmentHandler) AutoAssignQuestionsToAssessment(c *gin.Context) {
+	assessmentID := h.parseIDParam(c, "id")
+	if assessmentID == 0 {
+		return
+	}
+
+	h.LogRequest(c, "Auto-assigning questions to assessment", "assessment_id", assessmentID)
 
 	var req struct {
 		QuestionIDs []uint `json:"question_ids" binding:"required,min=1"`
@@ -798,14 +866,15 @@ func (h *AssessmentHandler) AddQuestionsToAssessment(c *gin.Context) {
 		return
 	}
 
-	err := h.assessmentService.AddQuestions(c.Request.Context(), assessmentID, req.QuestionIDs, userID.(string))
+	// Use auto-assign service method
+	err := h.assessmentService.AutoAssignQuestions(c.Request.Context(), assessmentID, req.QuestionIDs, userID.(string))
 	if err != nil {
 		h.handleServiceError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, SuccessResponse{
-		Message: "Questions added to assessment successfully",
+		Message: fmt.Sprintf("Successfully auto-assigned %d questions to assessment", len(req.QuestionIDs)),
 	})
 }
 

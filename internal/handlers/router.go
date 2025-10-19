@@ -82,6 +82,7 @@ func (hm *HandlerManager) SetupRoutes(router *gin.Engine) {
 
 			// Batch operations
 			assessments.POST("/:id/questions/batch", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.assessmentHandler.AddQuestionsToAssessment)
+			assessments.POST("/:id/questions/auto-assign", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.assessmentHandler.AutoAssignQuestionsToAssessment)
 			assessments.DELETE("/:id/questions/batch", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.assessmentHandler.RemoveQuestionsFromAssessment)
 			assessments.PUT("/:id/questions/batch", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.assessmentHandler.UpdateAssessmentQuestionsBatch)
 
