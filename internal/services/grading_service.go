@@ -31,6 +31,7 @@ func NewGradingService(db *gorm.DB, repo repositories.Repository, logger *slog.L
 
 // ===== MANUAL GRADING =====
 
+// GradeAnswer grades a single answer manually
 func (s *gradingService) GradeAnswer(ctx context.Context, answerID uint, score float64, feedback *string, graderID string) (*GradingResult, error) {
 	s.logger.Info("Manually grading answer",
 		"answer_id", answerID,
@@ -97,7 +98,7 @@ func (s *gradingService) GradeAttempt(ctx context.Context, attemptID uint, grade
 		"grader_id", graderID)
 
 	// Get attempt with details
-	attempt, err := s.repo.Attempt().GetByIDWithDetails(ctx, nil, attemptID)
+	attempt, err := s.repo.Attempt().GetByIDWithDetails(ctx, s.db, attemptID)
 	if err != nil {
 		if repositories.IsNotFoundError(err) {
 			return nil, fmt.Errorf("attempt not found")
@@ -116,63 +117,32 @@ func (s *gradingService) GradeAttempt(ctx context.Context, attemptID uint, grade
 	}
 
 	// Get all answers for attempt
-	answers, err := s.repo.Answer().GetByAttempt(ctx, nil, attemptID)
+	answers, err := s.repo.Answer().GetByAttempt(ctx, s.db, attemptID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get attempt answers: %w", err)
 	}
 
-	// Grade all ungraded answers automatically first
-	var questionResults []GradingResult
+	// Use batch auto-grading for all ungraded answers
+	questionResults, err := s.autoGradeAnswers(ctx, answers, attempt.AssessmentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to auto-grade answers: %w", err)
+	}
+
+	// Calculate final grade
 	totalScore := 0.0
 	maxTotalScore := 0.0
-
-	for _, answer := range answers {
-		var result *GradingResult
-
-		// If not already graded, try auto-grading
-		if !answer.IsGraded {
-			result, err = s.AutoGradeAnswer(ctx, answer.ID)
-			if err != nil {
-				s.logger.Warn("Failed to auto-grade answer", "answer_id", answer.ID, "error", err)
-				// Create zero-score result for ungradeable answers
-				result = &GradingResult{
-					AnswerID:   answer.ID,
-					QuestionID: answer.QuestionID,
-					Score:      0,
-					MaxScore:   float64(answer.Question.Points),
-					IsCorrect:  false,
-					GradedAt:   time.Now(),
-					GradedBy:   &graderID,
-				}
-			}
-		} else {
-			// Use existing grade
-			result = &GradingResult{
-				AnswerID:      answer.ID,
-				QuestionID:    answer.QuestionID,
-				Score:         answer.Score,
-				MaxScore:      float64(answer.Question.Points),
-				IsCorrect:     answer.Score == float64(answer.Question.Points),
-				PartialCredit: answer.Score > 0 && answer.Score < float64(answer.Question.Points),
-				Feedback:      answer.Feedback,
-				GradedAt:      *answer.GradedAt,
-				GradedBy:      answer.GradedBy,
-			}
-		}
-
-		questionResults = append(questionResults, *result)
+	for _, result := range questionResults {
 		totalScore += result.Score
 		maxTotalScore += result.MaxScore
 	}
 
-	// Calculate final grade
 	percentage := 0.0
 	if maxTotalScore > 0 {
 		percentage = (totalScore / maxTotalScore) * 100
 	}
 
 	// Get assessment to check passing score
-	assessment, err := s.repo.Assessment().GetByID(ctx, nil, attempt.AssessmentID)
+	assessment, err := s.repo.Assessment().GetByID(ctx, s.db, attempt.AssessmentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get assessment: %w", err)
 	}
@@ -185,7 +155,7 @@ func (s *gradingService) GradeAttempt(ctx context.Context, attemptID uint, grade
 	attempt.Percentage = percentage
 	attempt.Passed = isPassing
 
-	if err := s.repo.Attempt().Update(ctx, nil, attempt); err != nil {
+	if err := s.repo.Attempt().Update(ctx, s.db, attempt); err != nil {
 		return nil, fmt.Errorf("failed to update attempt grade: %w", err)
 	}
 
@@ -241,6 +211,9 @@ func (s *gradingService) GradeMultipleAnswers(ctx context.Context, grades []repo
 
 // ===== AUTO GRADING =====
 
+// AutoGradeAnswer auto-grades a single answer
+// DEPRECATED: This method is deprecated. Use AutoGradeAttempt instead to auto-grade all answers in a batch
+// for better performance and consistency. This method will be removed in a future version.
 func (s *gradingService) AutoGradeAnswer(ctx context.Context, answerID uint) (*GradingResult, error) {
 	s.logger.Debug("Auto-grading answer", "answer_id", answerID)
 
@@ -314,6 +287,138 @@ func (s *gradingService) AutoGradeAnswer(ctx context.Context, answerID uint) (*G
 	return result, nil
 }
 
+// autoGradeAnswers performs batch auto-grading for multiple answers
+// This method handles transaction management internally for consistency
+func (s *gradingService) autoGradeAnswers(ctx context.Context, answers []*models.StudentAnswer, assessmentId uint) ([]GradingResult, error) {
+	if len(answers) == 0 {
+		return []GradingResult{}, nil
+	}
+
+	var result []GradingResult
+	var answersToUpdate []*models.StudentAnswer
+
+	// Get assessment questions for points mapping
+	assessmentQuestions, err := s.repo.AssessmentQuestion().GetByAssessment(ctx, s.db, assessmentId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get assessment questions: %w", err)
+	}
+
+	mapAssessmentQuestions := make(map[uint]models.AssessmentQuestion)
+	for _, aq := range assessmentQuestions {
+		mapAssessmentQuestions[aq.QuestionID] = *aq
+	}
+
+	// Process each answer
+	for _, answer := range answers {
+		assessmentQuestion, exists := mapAssessmentQuestions[answer.QuestionID]
+		if !exists {
+			s.logger.Warn("Question not found in assessment",
+				"question_id", answer.QuestionID,
+				"assessment_id", assessmentId)
+			continue
+		}
+
+		// If already graded, include in results but don't update
+		//if answer.IsGraded {
+		//	result = append(result, GradingResult{
+		//		AnswerID:      answer.ID,
+		//		QuestionID:    answer.QuestionID,
+		//		Score:         answer.Score,
+		//		MaxScore:      float64(*assessmentQuestion.Points),
+		//		IsCorrect:     answer.Score == float64(*assessmentQuestion.Points),
+		//		PartialCredit: answer.Score > 0 && answer.Score < float64(*assessmentQuestion.Points),
+		//		Feedback:      answer.Feedback,
+		//		GradedAt:      *answer.GradedAt,
+		//		GradedBy:      answer.GradedBy,
+		//	})
+		//	continue
+		//}
+
+		// Skip if no answer provided
+		if answer.Answer == nil || len(answer.Answer) == 0 {
+			// Mark as graded with 0 score
+			answer.Score = 0.0
+			answer.IsGraded = true
+			answer.GradedAt = timePtr(time.Now())
+			isCorrect := false
+			answer.IsCorrect = &isCorrect
+			answersToUpdate = append(answersToUpdate, answer)
+
+			result = append(result, GradingResult{
+				AnswerID:   answer.ID,
+				QuestionID: answer.QuestionID,
+				Score:      0.0,
+				MaxScore:   float64(*assessmentQuestion.Points),
+				IsCorrect:  false,
+				GradedAt:   time.Now(),
+				GradedBy:   nil,
+			})
+			continue
+		}
+
+		// Calculate score based on question type
+		score, isCorrect, err := s.CalculateScore(ctx, answer.Question.Type,
+			json.RawMessage(answer.Question.Content),
+			json.RawMessage(answer.Answer))
+		if err != nil {
+			// If grading fails (e.g., essay type), mark with 0 score
+			s.logger.Warn("Failed to calculate score, marking as 0",
+				"answer_id", answer.ID,
+				"question_type", answer.Question.Type,
+				"error", err)
+			score = 0.0
+			isCorrect = false
+		}
+
+		// Generate feedback
+		feedback, err := s.GenerateFeedback(ctx, answer.Question.Type,
+			json.RawMessage(answer.Question.Content),
+			json.RawMessage(answer.Answer),
+			isCorrect)
+		if err != nil {
+			s.logger.Warn("Failed to generate feedback", "answer_id", answer.ID, "error", err)
+		}
+
+		// Update answer with auto-grade
+		finalScore := score * float64(*assessmentQuestion.Points)
+		answer.Score = finalScore
+		answer.Feedback = feedback
+		answer.GradedAt = timePtr(time.Now())
+		answer.IsGraded = true
+		answer.IsCorrect = &isCorrect
+		answer.UpdatedAt = time.Now()
+		answer.MaxScore = *assessmentQuestion.Points
+		// Note: GradedBy is nil for auto-graded answers
+
+		answersToUpdate = append(answersToUpdate, answer)
+
+		result = append(result, GradingResult{
+			AnswerID:      answer.ID,
+			QuestionID:    answer.QuestionID,
+			Score:         finalScore,
+			MaxScore:      float64(*assessmentQuestion.Points),
+			IsCorrect:     isCorrect,
+			PartialCredit: score > 0 && score < 1.0,
+			Feedback:      feedback,
+			GradedAt:      time.Now(),
+			GradedBy:      nil, // Auto-graded
+		})
+	}
+
+	// Batch update all answers in a transaction
+	if len(answersToUpdate) > 0 {
+		if err := s.repo.Answer().UpdateBatch(ctx, s.db, answersToUpdate); err != nil {
+			return nil, fmt.Errorf("failed to batch update graded answers: %w", err)
+		}
+
+		s.logger.Info("Batch auto-graded answers successfully",
+			"count", len(answersToUpdate),
+			"total_answers", len(answers))
+	}
+
+	return result, nil
+}
+
 func (s *gradingService) AutoGradeAttempt(ctx context.Context, attemptID uint) (*AttemptGradingResult, error) {
 	s.logger.Info("Auto-grading attempt", "attempt_id", attemptID)
 
@@ -338,38 +443,19 @@ func (s *gradingService) AutoGradeAttempt(ctx context.Context, attemptID uint) (
 	maxTotalScore := 0.0
 	hasManualGrading := false
 
+	questionResults, err = s.autoGradeAnswers(ctx, answers, attempt.AssessmentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to auto-grade answers: %w", err)
+	}
+
 	for _, answer := range answers {
-		var result *GradingResult
-
-		if !answer.IsGraded {
-			// Try auto-grading
-			if s.isAutoGradeable(answer.Question.Type) {
-				result, err = s.AutoGradeAnswer(ctx, answer.ID)
-				if err != nil {
-					s.logger.Warn("Failed to auto-grade answer", "answer_id", answer.ID, "error", err)
-					continue // Skip ungradeable answers
-				}
-			} else {
-				// Requires manual grading
-				hasManualGrading = true
-				continue
-			}
-		} else {
-			// Use existing grade
-			result = &GradingResult{
-				AnswerID:      answer.ID,
-				QuestionID:    answer.QuestionID,
-				Score:         answer.Score,
-				MaxScore:      float64(answer.Question.Points),
-				IsCorrect:     answer.Score == float64(answer.Question.Points),
-				PartialCredit: answer.Score > 0 && answer.Score < float64(answer.Question.Points),
-				Feedback:      answer.Feedback,
-				GradedAt:      *answer.GradedAt,
-				GradedBy:      answer.GradedBy,
-			}
+		if !s.isAutoGradeable(answer.Question.Type) {
+			hasManualGrading = true
+			break
 		}
+	}
 
-		questionResults = append(questionResults, *result)
+	for _, result := range questionResults {
 		totalScore += result.Score
 		maxTotalScore += result.MaxScore
 	}

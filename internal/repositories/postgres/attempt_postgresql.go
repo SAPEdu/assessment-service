@@ -749,18 +749,33 @@ func (ar *AnswerPostgreSQL) UpdateBatch(ctx context.Context, tx *gorm.DB, answer
 
 	db := ar.getDB(tx)
 	return db.WithContext(ctx).Transaction(func(txInner *gorm.DB) error {
+		// Batch update using GORM
 		for _, answer := range answers {
-			if err := txInner.Save(answer).Error; err != nil {
+			if err := txInner.Model(&models.StudentAnswer{}).Where("id = ?", answer.ID).Updates(map[string]interface{}{
+				"answer":            answer.Answer,
+				"score":             answer.Score,
+				"max_score":         answer.MaxScore,
+				"is_correct":        answer.IsCorrect,
+				"graded_by":         answer.GradedBy,
+				"graded_at":         answer.GradedAt,
+				"feedback":          answer.Feedback,
+				"time_spent":        answer.TimeSpent,
+				"first_answered_at": answer.FirstAnsweredAt,
+				"last_modified_at":  answer.LastModifiedAt,
+				"answer_history":    answer.AnswerHistory,
+				"flagged":           answer.Flagged,
+				"is_graded":         answer.IsGraded,
+			}).Error; err != nil {
 				return fmt.Errorf("failed to update answer ID %d: %w", answer.ID, err)
 			}
 		}
 
-		// Invalidate caches for all affected attempts
+		// Invalidate caches
 		attemptIDs := make(map[uint]bool)
 		for _, answer := range answers {
+			ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", answer.ID))
 			attemptIDs[answer.AttemptID] = true
 		}
-
 		for attemptID := range attemptIDs {
 			ar.cacheManager.Fast.InvalidatePattern(ctx, fmt.Sprintf("attempt:%d:*", attemptID))
 		}

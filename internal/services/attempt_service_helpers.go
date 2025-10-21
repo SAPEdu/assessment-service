@@ -262,8 +262,12 @@ func (s *attemptService) canAccessAttempt(ctx context.Context, attempt *models.A
 		return attempt.StudentID == userID, nil
 	}
 
+	if userRole == models.RoleAdmin {
+		return true, nil
+	}
+
 	// Teachers/Admins can access attempts for their assessments
-	if userRole == models.RoleTeacher || userRole == models.RoleAdmin {
+	if userRole == models.RoleTeacher {
 		assessmentService := NewAssessmentService(s.repo, s.db, s.logger, s.validator)
 		return assessmentService.CanAccess(ctx, attempt.AssessmentID, userID)
 	}
