@@ -287,6 +287,7 @@ func (s *gradingService) AutoGradeAnswer(ctx context.Context, answerID uint) (*G
 	answer.GradedAt = timePtr(time.Now())
 	answer.IsGraded = true
 	answer.IsCorrect = &isCorrect
+	answer.MaxScore = answer.Question.Points
 	// Note: GradedBy is nil for auto-graded answers
 
 	if err := s.repo.Answer().Update(ctx, s.db, answer); err != nil {

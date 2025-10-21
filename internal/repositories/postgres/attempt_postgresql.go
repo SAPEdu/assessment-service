@@ -56,6 +56,7 @@ func (a *AttemptPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.DB,
 		Preload("Student").
 		Preload("Assessment").
 		Preload("Answers").
+		Preload("Answers.Question").
 		// Preload("ProctoringEvents").
 		First(&attempt, id).Error; err != nil {
 		return nil, err
