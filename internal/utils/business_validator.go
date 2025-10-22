@@ -302,7 +302,7 @@ type QuestionCreateRequest struct {
 	Text        string                 `json:"text" validate:"required,min=1,max=2000"`
 	Content     interface{}            `json:"content" validate:"required"`
 	Points      int                    `json:"points" validate:"required,min=1,max=100"`
-	TimeLimit   *int                   `json:"time_limit" validate:"omitempty,min=30,max=3600"`
+	TimeLimit   *int                   `json:"time_limit" validate:"omitempty,min=5,max=3600"`
 	Difficulty  models.DifficultyLevel `json:"difficulty" validate:"required,difficulty_level"`
 	CategoryID  *uint                  `json:"category_id"`
 	Tags        []string               `json:"tags" validate:"omitempty,max=10,dive,max=50"`

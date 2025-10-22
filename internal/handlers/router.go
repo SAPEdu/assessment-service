@@ -17,6 +17,9 @@ type HandlerManager struct {
 	questionBankHandler *QuestionBankHandler
 	attemptHandler      *AttemptHandler
 	gradingHandler      *GradingHandler
+	dashboardHandler    *DashboardHandler
+	studentHandler      *StudentHandler
+	userHandler         *UserHandler
 	authMiddleware      *CasdoorAuthMiddleware
 }
 
@@ -35,6 +38,9 @@ func NewHandlerManager(
 		questionBankHandler: NewQuestionBankHandler(serviceManager.QuestionBank(), logger),
 		attemptHandler:      NewAttemptHandler(serviceManager.Attempt(), validator, logger),
 		gradingHandler:      NewGradingHandler(serviceManager.Grading(), validator, logger),
+		dashboardHandler:    NewDashboardHandler(serviceManager.Dashboard(), logger),
+		studentHandler:      NewStudentHandler(serviceManager.Student(), logger),
+		userHandler:         NewUserHandler(userRepo, logger),
 		authMiddleware:      authMiddleware,
 	}
 }
@@ -76,6 +82,7 @@ func (hm *HandlerManager) SetupRoutes(router *gin.Engine) {
 
 			// Batch operations
 			assessments.POST("/:id/questions/batch", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.assessmentHandler.AddQuestionsToAssessment)
+			assessments.POST("/:id/questions/auto-assign", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.assessmentHandler.AutoAssignQuestionsToAssessment)
 			assessments.DELETE("/:id/questions/batch", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.assessmentHandler.RemoveQuestionsFromAssessment)
 			assessments.PUT("/:id/questions/batch", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.assessmentHandler.UpdateAssessmentQuestionsBatch)
 
@@ -142,6 +149,14 @@ func (hm *HandlerManager) SetupRoutes(router *gin.Engine) {
 			questionBanks.GET("/creator/:creator_id", hm.questionBankHandler.GetQuestionBanksByCreator)
 		}
 
+		// User routes (for sharing purposes)
+		users := v1.Group("/users")
+		{
+			users.GET("", hm.userHandler.ListUsers)
+			users.GET("/search", hm.userHandler.SearchUsers)
+			users.GET("/:id", hm.userHandler.GetUser)
+		}
+
 		// Attempt routes
 		attempts := v1.Group("/attempts")
 		{
@@ -164,8 +179,8 @@ func (hm *HandlerManager) SetupRoutes(router *gin.Engine) {
 			attempts.GET("/assessment/:assessment_id", hm.attemptHandler.GetAttemptsByAssessment)
 			attempts.GET("/stats/:assessment_id", hm.attemptHandler.GetAttemptStats)
 
-			// Student-specific routes
-			attempts.GET("/student/:student_id", hm.attemptHandler.GetAttemptsByStudent)
+			// Student-specific routes - Teachers and Admins only (students should use /students/me/attempts)
+			attempts.GET("/student/:student_id", hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin), hm.attemptHandler.GetAttemptsByStudent)
 		}
 
 		// Grading routes - Teachers, Proctors and Admins only
@@ -193,6 +208,27 @@ func (hm *HandlerManager) SetupRoutes(router *gin.Engine) {
 			// Grading overview
 			grading.GET("/assessments/:assessment_id/overview", hm.gradingHandler.GetGradingOverview)
 		}
+
+		// Dashboard routes - Teachers and Admins only
+		dashboard := v1.Group("/dashboard")
+		dashboard.Use(hm.authMiddleware.RequireRoleMiddleware(models.RoleTeacher, models.RoleAdmin))
+		{
+			dashboard.GET("/stats", hm.dashboardHandler.GetDashboardStats)
+			dashboard.GET("/activity-trends", hm.dashboardHandler.GetActivityTrends)
+			dashboard.GET("/recent-activities", hm.dashboardHandler.GetRecentActivities)
+			dashboard.GET("/question-distribution", hm.dashboardHandler.GetQuestionDistribution)
+			dashboard.GET("/performance-by-subject", hm.dashboardHandler.GetPerformanceBySubject)
+		}
+
+		// Student routes - Students only
+		students := v1.Group("/students")
+		students.Use(hm.authMiddleware.RequireRoleMiddleware(models.RoleStudent))
+		{
+			students.GET("/me/stats", hm.studentHandler.GetStudentStats)
+			students.GET("/me/assessments", hm.studentHandler.GetStudentAssessments)
+			students.GET("/me/assessments/:id", hm.studentHandler.GetStudentAssessmentDetail)
+			students.GET("/me/attempts", hm.studentHandler.GetStudentAttempts)
+		}
 	}
 
 	// Health check endpoint
@@ -202,12 +238,4 @@ func (hm *HandlerManager) SetupRoutes(router *gin.Engine) {
 			"service": "assessment-service",
 		})
 	})
-}
-
-// AdminMiddleware - placeholder for admin authorization middleware
-func AdminMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// TODO: Implement admin authorization logic
-		c.Next()
-	}
 }

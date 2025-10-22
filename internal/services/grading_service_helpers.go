@@ -182,13 +182,10 @@ func (s *gradingService) gradeMultipleChoice(questionContent json.RawMessage, st
 
 	var answer []string
 	if err := json.Unmarshal(studentAnswer, &answer); err != nil {
-		return 0.0, false, fmt.Errorf("failed to unmarshal student answer: %w", err)
-	}
-
-	// Handle single answer format
-	if len(answer) == 0 {
 		var singleAnswer string
-		if err := json.Unmarshal(studentAnswer, &singleAnswer); err == nil {
+		if err = json.Unmarshal(studentAnswer, &singleAnswer); err != nil {
+			return 0.0, false, fmt.Errorf("failed to unmarshal student answer: %w", err)
+		} else {
 			answer = []string{singleAnswer}
 		}
 	}

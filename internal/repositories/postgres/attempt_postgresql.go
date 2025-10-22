@@ -55,7 +55,9 @@ func (a *AttemptPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.DB,
 	if err := db.WithContext(ctx).
 		Preload("Student").
 		Preload("Assessment").
-		Preload("ProctoringEvents").
+		Preload("Answers").
+		Preload("Answers.Question").
+		// Preload("ProctoringEvents").
 		First(&attempt, id).Error; err != nil {
 		return nil, err
 	}
@@ -64,7 +66,9 @@ func (a *AttemptPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.DB,
 
 func (a *AttemptPostgreSQL) Update(ctx context.Context, tx *gorm.DB, attempt *models.AssessmentAttempt) error {
 	db := a.getDB(tx)
-	return db.WithContext(ctx).Save(attempt).Error
+	// Use Select to avoid cascading to associations (Student, Assessment, etc.)
+	// This prevents FK constraint errors when Student doesn't exist in DB yet
+	return db.WithContext(ctx).Model(attempt).Select("*").Omit("Student", "Assessment", "Answers", "ProctoringEvents").Updates(attempt).Error
 }
 
 func (a *AttemptPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) error {
@@ -156,9 +160,9 @@ func (a *AttemptPostgreSQL) GetActiveAttempt(ctx context.Context, tx *gorm.DB, s
 		Preload("Student").
 		Preload("Assessment").
 		First(&attempt).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
+		//if errors.Is(err, gorm.ErrRecordNotFound) {
+		//	return nil, NotExis
+		//}
 		return nil, err
 	}
 
@@ -415,27 +419,27 @@ func (a *AttemptPostgreSQL) GetStudentAttemptStats(ctx context.Context, tx *gorm
 		return nil, err
 	}
 
-	// Average Score
+	// Average Score - Use COALESCE to handle NULL when no completed attempts
 	if err := a.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
 		Where("student_id = ? AND status = ?", studentID, models.AttemptCompleted).
-		Select("AVG(score)").Scan(&avgScore).Error; err != nil {
+		Select("COALESCE(AVG(score), 0)").Scan(&avgScore).Error; err != nil {
 		return nil, err
 	}
 
-	// Best Score
+	// Best Score - Use COALESCE to handle NULL when no completed attempts
 	if err := a.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
 		Where("student_id = ? AND status = ?", studentID, models.AttemptCompleted).
-		Select("MAX(score)").Scan(&bestScore).Error; err != nil {
+		Select("COALESCE(MAX(score), 0)").Scan(&bestScore).Error; err != nil {
 		return nil, err
 	}
 
-	// Total Time Spent
+	// Total Time Spent - Use COALESCE to handle NULL when no completed attempts
 	if err := a.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
 		Where("student_id = ? AND status = ?", studentID, models.AttemptCompleted).
-		Select("SUM(time_spent)").Scan(&totalTimeSpent).Error; err != nil {
+		Select("COALESCE(SUM(time_spent), 0)").Scan(&totalTimeSpent).Error; err != nil {
 		return nil, err
 	}
 
@@ -652,7 +656,27 @@ func (ar *AnswerPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.DB,
 // Update updates an existing answer
 func (ar *AnswerPostgreSQL) Update(ctx context.Context, tx *gorm.DB, answer *models.StudentAnswer) error {
 	db := ar.getDB(tx)
-	if err := db.WithContext(ctx).Save(answer).Error; err != nil {
+	newAnswer := &models.StudentAnswer{
+		ID: answer.ID,
+	}
+	// Use Updates instead of Save to avoid cascading to associations
+	// This prevents foreign key constraint errors when associations are loaded
+	if err := db.WithContext(ctx).Model(newAnswer).Updates(map[string]interface{}{
+		"answer":            answer.Answer,
+		"score":             answer.Score,
+		"max_score":         answer.MaxScore,
+		"is_correct":        answer.IsCorrect,
+		"graded_by":         answer.GradedBy,
+		"graded_at":         answer.GradedAt,
+		"feedback":          answer.Feedback,
+		"time_spent":        answer.TimeSpent,
+		"first_answered_at": answer.FirstAnsweredAt,
+		"last_modified_at":  answer.LastModifiedAt,
+		"answer_history":    answer.AnswerHistory,
+		"flagged":           answer.Flagged,
+		"is_graded":         answer.IsGraded,
+		"updated_at":        answer.UpdatedAt,
+	}).Error; err != nil {
 		return fmt.Errorf("failed to update answer: %w", err)
 	}
 
@@ -725,18 +749,33 @@ func (ar *AnswerPostgreSQL) UpdateBatch(ctx context.Context, tx *gorm.DB, answer
 
 	db := ar.getDB(tx)
 	return db.WithContext(ctx).Transaction(func(txInner *gorm.DB) error {
+		// Batch update using GORM
 		for _, answer := range answers {
-			if err := txInner.Save(answer).Error; err != nil {
+			if err := txInner.Model(&models.StudentAnswer{}).Where("id = ?", answer.ID).Updates(map[string]interface{}{
+				"answer":            answer.Answer,
+				"score":             answer.Score,
+				"max_score":         answer.MaxScore,
+				"is_correct":        answer.IsCorrect,
+				"graded_by":         answer.GradedBy,
+				"graded_at":         answer.GradedAt,
+				"feedback":          answer.Feedback,
+				"time_spent":        answer.TimeSpent,
+				"first_answered_at": answer.FirstAnsweredAt,
+				"last_modified_at":  answer.LastModifiedAt,
+				"answer_history":    answer.AnswerHistory,
+				"flagged":           answer.Flagged,
+				"is_graded":         answer.IsGraded,
+			}).Error; err != nil {
 				return fmt.Errorf("failed to update answer ID %d: %w", answer.ID, err)
 			}
 		}
 
-		// Invalidate caches for all affected attempts
+		// Invalidate caches
 		attemptIDs := make(map[uint]bool)
 		for _, answer := range answers {
+			ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", answer.ID))
 			attemptIDs[answer.AttemptID] = true
 		}
-
 		for attemptID := range attemptIDs {
 			ar.cacheManager.Fast.InvalidatePattern(ctx, fmt.Sprintf("attempt:%d:*", attemptID))
 		}
@@ -776,6 +815,7 @@ func (ar *AnswerPostgreSQL) GetByAttempt(ctx context.Context, tx *gorm.DB, attem
 		if err := db.WithContext(ctx).
 			Where("attempt_id = ?", attemptID).
 			Order("question_id ASC").
+			Preload("Question").
 			Find(&dbAnswers).Error; err != nil {
 			return nil, fmt.Errorf("failed to get answers by attempt: %w", err)
 		}

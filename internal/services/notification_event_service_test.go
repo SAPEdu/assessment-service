@@ -33,6 +33,7 @@ func (m *MockNotificationRepository) Attempt() repositories.AttemptRepository   
 func (m *MockNotificationRepository) Answer() repositories.AnswerRepository             { return nil }
 func (m *MockNotificationRepository) User() repositories.UserRepository                 { return nil }
 func (m *MockNotificationRepository) QuestionBank() repositories.QuestionBankRepository { return nil }
+func (m *MockNotificationRepository) Dashboard() repositories.DashboardRepository       { return nil }
 func (m *MockNotificationRepository) WithTransaction(ctx context.Context, fn func(repositories.Repository) error) error {
 	return nil
 }

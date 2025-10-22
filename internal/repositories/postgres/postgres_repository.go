@@ -30,6 +30,7 @@ type PostgreSQLRepository struct {
 	attempt            repositories.AttemptRepository
 	answer             repositories.AnswerRepository
 	user               repositories.UserRepository
+	dashboard          repositories.DashboardRepository
 }
 
 // RepositoryConfig holds configuration for repository initialization
@@ -58,6 +59,9 @@ func NewPostgreSQLRepository(config RepositoryConfig) repositories.Repository {
 
 	// User repository uses Casdoor
 	repo.user = casdoor.NewUserCasdoor(config.CasdoorConfig, config.RedisClient)
+
+	// Dashboard repository
+	repo.dashboard = NewDashboardRepository(config.DB)
 
 	// TODO: Initialize other repositories
 	repo.assessmentSettings = NewAssessmentSettingsPostgreSQL(config.DB, cacheManager)
@@ -118,6 +122,11 @@ func (r *PostgreSQLRepository) User() repositories.UserRepository {
 	return r.user
 }
 
+// Dashboard returns the dashboard repository
+func (r *PostgreSQLRepository) Dashboard() repositories.DashboardRepository {
+	return r.dashboard
+}
+
 // WithTransaction executes a function within a database transaction
 func (r *PostgreSQLRepository) WithTransaction(ctx context.Context, fn func(repositories.Repository) error) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -137,6 +146,9 @@ func (r *PostgreSQLRepository) WithTransaction(ctx context.Context, fn func(repo
 
 		// User repository doesn't need transaction (it's external)
 		txRepo.user = r.user
+
+		// Dashboard repository with transaction
+		txRepo.dashboard = NewDashboardRepository(tx)
 
 		return fn(txRepo)
 	})

@@ -116,7 +116,7 @@ func (r *questionBankRepository) GetSharedWithUser(ctx context.Context, tx *gorm
 
 	query := db.WithContext(ctx).
 		Table("question_banks qb").
-		Select("qb.*").
+		Model(&models.QuestionBank{}).
 		Joins("INNER JOIN question_bank_shares qbs ON qb.id = qbs.bank_id").
 		Where("qbs.user_id = ?", userID).
 		Preload("Creator")
@@ -134,7 +134,7 @@ func (r *questionBankRepository) GetSharedWithUser(ctx context.Context, tx *gorm
 	// Apply pagination and sorting
 	query = r.applyPaginationAndSorting(query, filters.Limit, filters.Offset, filters.SortBy, filters.SortOrder)
 
-	if err := query.Find(&banks).Error; err != nil {
+	if err := query.Select("qb.*").Find(&banks).Error; err != nil {
 		return nil, 0, r.handleDBError(err, "get shared question banks")
 	}
 
@@ -315,6 +315,7 @@ func (r *questionBankRepository) GetBankQuestions(ctx context.Context, tx *gorm.
 
 	query := db.WithContext(ctx).
 		Table("questions q").
+		Model(&models.Question{}).
 		Joins("INNER JOIN question_bank_questions qbq ON q.id = qbq.question_id").
 		Where("qbq.question_bank_id = ?", bankID).
 		Preload("Category").
@@ -496,6 +497,20 @@ func (r *questionBankRepository) HasQuestions(ctx context.Context, tx *gorm.DB, 
 }
 
 // ===== STATISTICS =====
+
+func (r *questionBankRepository) CountQuestionsInBank(ctx context.Context, tx *gorm.DB, bankID uint) (int, error) {
+	db := r.getDB(tx)
+	var count int64
+
+	if err := db.WithContext(ctx).
+		Table("question_bank_questions").
+		Where("question_bank_id = ?", bankID).
+		Count(&count).Error; err != nil {
+		return 0, r.handleDBError(err, "count questions in bank")
+	}
+
+	return int(count), nil
+}
 
 func (r *questionBankRepository) GetBankStats(ctx context.Context, tx *gorm.DB, bankID uint) (*repositories.QuestionBankStats, error) {
 	db := r.getDB(tx)

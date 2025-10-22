@@ -41,8 +41,8 @@ type UpdateStatusRequest struct {
 
 type UpdateAssessmentQuestionRequest struct {
 	QuestionId uint `json:"question_id"`
-	Points     *int `json:"points" validate:"omitempty,min=1,max=100"`
-	TimeLimit  *int `json:"time_limit" validate:"omitempty,min=30,max=3600"`
+	Points     int  `json:"points" validate:"required,min=1,max=100"`       // Required: Actual points for this question in the assessment
+	TimeLimit  *int `json:"time_limit" validate:"omitempty,min=5,max=3600"` // DEPRECATED: Not used in timing logic
 }
 
 type ReorderQuestionsRequest struct {
@@ -57,7 +57,7 @@ type StartAttemptRequest struct {
 
 type SubmitAnswerRequest struct {
 	QuestionID uint        `json:"question_id" validate:"required"`
-	AnswerData interface{} `json:"answer_data" validate:"required"`
+	AnswerData interface{} `json:"answer" validate:"required"`
 	TimeSpent  *int        `json:"time_spent"`
 }
 
@@ -90,7 +90,7 @@ type UpdateQuestionRequest struct {
 	Text        *string                 `json:"text" validate:"omitempty,max=2000"`
 	Content     interface{}             `json:"content"`
 	Points      *int                    `json:"points" validate:"omitempty,min=1,max=100"`
-	TimeLimit   *int                    `json:"time_limit" validate:"omitempty,min=30,max=3600"`
+	TimeLimit   *int                    `json:"time_limit" validate:"omitempty,min=5,max=3600"` // DEPRECATED: Not used in timing logic
 	Difficulty  *models.DifficultyLevel `json:"difficulty"`
 	CategoryID  *uint                   `json:"category_id"`
 	Tags        []string                `json:"tags"`
@@ -206,8 +206,10 @@ type AssessmentService interface {
 	Archive(ctx context.Context, id uint, userID string) error
 
 	// Question management
-	AddQuestion(ctx context.Context, assessmentID, questionID uint, order int, points *int, userID string) error
-	AddQuestions(ctx context.Context, assessmentID uint, questionsId []uint, userID string) error
+	AddQuestion(ctx context.Context, assessmentID, questionID uint, order int, points int, userID string) error
+	AddQuestions(ctx context.Context, assessmentID uint, questionsId []uint, userID string) error // Deprecated: Use AddQuestionsBatch
+	AddQuestionsBatch(ctx context.Context, assessmentID uint, questions []AssessmentQuestionRequest, userID string) error
+	AutoAssignQuestions(ctx context.Context, assessmentID uint, questionIDs []uint, userID string) error // Auto-calculate and assign points evenly
 	RemoveQuestion(ctx context.Context, assessmentID, questionID uint, userID string) error
 	RemoveQuestions(ctx context.Context, assessmentID uint, questionsId []uint, userID string) error
 	ReorderQuestions(ctx context.Context, assessmentID uint, orders []repositories.QuestionOrder, userID string) error
@@ -358,6 +360,8 @@ type ServiceManager interface {
 	QuestionBank() QuestionBankService
 	Attempt() AttemptService
 	Grading() GradingService
+	Dashboard() DashboardService
+	Student() StudentService
 
 	// Additional service getters
 	ImportExport() ImportExportService

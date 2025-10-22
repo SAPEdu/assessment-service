@@ -90,7 +90,7 @@ func main() {
 	router := gin.New()
 
 	// Setup middleware
-	handlers.SetupMiddleware(router)
+	handlers.SetupMiddleware(router, logger)
 
 	// Note: Authentication middleware is now applied per route group in SetupRoutes
 

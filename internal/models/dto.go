@@ -56,7 +56,7 @@ type QuestionCreateRequest struct {
 	Type        QuestionType    `json:"type" validate:"required,oneof=multiple_choice true_false essay fill_blank matching ordering short_answer"`
 	Text        string          `json:"text" validate:"required"`
 	Points      int             `json:"points" validate:"min=1,max=100"`
-	TimeLimit   *int            `json:"time_limit" validate:"omitempty,min=10,max=7200"`
+	TimeLimit   *int            `json:"time_limit" validate:"omitempty,min=10,max=7200"` // DEPRECATED: Not used in timing logic
 	Content     json.RawMessage `json:"content" validate:"required"`
 	CategoryID  *uint           `json:"category_id"`
 	Difficulty  DifficultyLevel `json:"difficulty" validate:"oneof=easy medium hard"`
@@ -67,7 +67,7 @@ type QuestionCreateRequest struct {
 type QuestionUpdateRequest struct {
 	Text        *string          `json:"text" validate:"omitempty,min=1"`
 	Points      *int             `json:"points" validate:"omitempty,min=1,max=100"`
-	TimeLimit   *int             `json:"time_limit" validate:"omitempty,min=10,max=7200"`
+	TimeLimit   *int             `json:"time_limit" validate:"omitempty,min=10,max=7200"` // DEPRECATED: Not used in timing logic
 	Content     json.RawMessage  `json:"content"`
 	CategoryID  *uint            `json:"category_id"`
 	Difficulty  *DifficultyLevel `json:"difficulty" validate:"omitempty,oneof=easy medium hard"`

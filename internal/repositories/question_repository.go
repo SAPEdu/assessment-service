@@ -151,6 +151,7 @@ type QuestionBankRepository interface {
 	HasQuestions(ctx context.Context, tx *gorm.DB, bankID uint) (bool, error)
 
 	// Statistics
+	CountQuestionsInBank(ctx context.Context, tx *gorm.DB, bankID uint) (int, error)
 	GetBankStats(ctx context.Context, tx *gorm.DB, bankID uint) (*QuestionBankStats, error)
 	GetUsageCount(ctx context.Context, tx *gorm.DB, bankID uint) (int, error)
 	UpdateUsage(ctx context.Context, tx *gorm.DB, bankID uint) error

@@ -241,14 +241,34 @@ func (s *assessmentService) Delete(ctx context.Context, id uint, userID string) 
 // ===== LIST AND SEARCH OPERATIONS =====
 
 func (s *assessmentService) List(ctx context.Context, filters repositories.AssessmentFilters, userID string) (*AssessmentListResponse, error) {
-	// For non-admin users, limit to their own assessments
+	// Filter based on user role
 	userRole, err := s.getUserRole(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if userRole != models.RoleAdmin {
+	// Apply role-based filtering
+	switch userRole {
+	case models.RoleStudent:
+		// Students: only Active assessments that haven't expired
+		activeStatus := models.StatusActive
+		filters.Status = &activeStatus
+
+	case models.RoleTeacher:
+		// Teachers: only their own assessments
 		filters.CreatedBy = &userID
+
+	case models.RoleAdmin:
+		// Admins: no additional filtering (can see all)
+
+	default:
+		// Unknown role: no access
+		return &AssessmentListResponse{
+			Assessments: []*AssessmentResponse{},
+			Total:       0,
+			Page:        1,
+			Size:        filters.Limit,
+		}, nil
 	}
 
 	assessments, total, err := s.repo.Assessment().List(ctx, s.db, filters)
@@ -256,11 +276,25 @@ func (s *assessmentService) List(ctx context.Context, filters repositories.Asses
 		return nil, fmt.Errorf("failed to list assessments: %w", err)
 	}
 
+	// For students, filter out expired assessments (where due_date has passed)
+	if userRole == models.RoleStudent {
+		now := time.Now()
+		filteredAssessments := make([]*models.Assessment, 0, len(assessments))
+		for _, assessment := range assessments {
+			// Include if no due_date or due_date is in the future
+			if assessment.DueDate == nil || assessment.DueDate.After(now) {
+				filteredAssessments = append(filteredAssessments, assessment)
+			}
+		}
+		assessments = filteredAssessments
+		total = int64(len(filteredAssessments))
+	}
+
 	// Build response
 	response := &AssessmentListResponse{
 		Assessments: make([]*AssessmentResponse, len(assessments)),
 		Total:       total,
-		Page:        filters.Offset / max(filters.Limit, 1),
+		Page:        (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:        filters.Limit,
 	}
 
@@ -284,7 +318,7 @@ func (s *assessmentService) GetByCreator(ctx context.Context, creatorID string, 
 	response := &AssessmentListResponse{
 		Assessments: make([]*AssessmentResponse, len(assessments)),
 		Total:       total,
-		Page:        filters.Offset / max(filters.Limit, 1),
+		Page:        (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:        filters.Limit,
 	}
 
@@ -296,14 +330,34 @@ func (s *assessmentService) GetByCreator(ctx context.Context, creatorID string, 
 }
 
 func (s *assessmentService) Search(ctx context.Context, query string, filters repositories.AssessmentFilters, userID string) (*AssessmentListResponse, error) {
-	// For non-admin users, limit to their own assessments
+	// Filter based on user role
 	userRole, err := s.getUserRole(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if userRole != models.RoleAdmin {
+	// Apply role-based filtering (same as List)
+	switch userRole {
+	case models.RoleStudent:
+		// Students: only Active assessments that haven't expired
+		activeStatus := models.StatusActive
+		filters.Status = &activeStatus
+
+	case models.RoleTeacher:
+		// Teachers: only their own assessments
 		filters.CreatedBy = &userID
+
+	case models.RoleAdmin:
+		// Admins: no additional filtering (can see all)
+
+	default:
+		// Unknown role: no access
+		return &AssessmentListResponse{
+			Assessments: []*AssessmentResponse{},
+			Total:       0,
+			Page:        1,
+			Size:        filters.Limit,
+		}, nil
 	}
 
 	assessments, total, err := s.repo.Assessment().Search(ctx, nil, query, filters)
@@ -311,11 +365,25 @@ func (s *assessmentService) Search(ctx context.Context, query string, filters re
 		return nil, fmt.Errorf("failed to search assessments: %w", err)
 	}
 
+	// For students, filter out expired assessments (where due_date has passed)
+	if userRole == models.RoleStudent {
+		now := time.Now()
+		filteredAssessments := make([]*models.Assessment, 0, len(assessments))
+		for _, assessment := range assessments {
+			// Include if no due_date or due_date is in the future
+			if assessment.DueDate == nil || assessment.DueDate.After(now) {
+				filteredAssessments = append(filteredAssessments, assessment)
+			}
+		}
+		assessments = filteredAssessments
+		total = int64(len(filteredAssessments))
+	}
+
 	// Build response
 	response := &AssessmentListResponse{
 		Assessments: make([]*AssessmentResponse, len(assessments)),
 		Total:       total,
-		Page:        filters.Offset / max(filters.Limit, 1),
+		Page:        (filters.Offset / max(filters.Limit, 1)) + 1,
 		Size:        filters.Limit,
 	}
 
@@ -395,11 +463,12 @@ func (s *assessmentService) Archive(ctx context.Context, id uint, userID string)
 
 // ===== QUESTION MANAGEMENT =====
 
-func (s *assessmentService) AddQuestion(ctx context.Context, assessmentID, questionID uint, order int, points *int, userID string) error {
+func (s *assessmentService) AddQuestion(ctx context.Context, assessmentID, questionID uint, order int, points int, userID string) error {
 	s.logger.Info("Adding question to assessment",
 		"assessment_id", assessmentID,
 		"question_id", questionID,
 		"order", order,
+		"points", points,
 		"user_id", userID)
 
 	// Check edit permission
@@ -411,6 +480,11 @@ func (s *assessmentService) AddQuestion(ctx context.Context, assessmentID, quest
 		return NewPermissionError(userID, assessmentID, "assessment", "add_question", "not owner or assessment not editable")
 	}
 
+	// Validate assessment questions are editable (not locked by attempts)
+	if err := s.validateAssessmentQuestionsEditable(ctx, nil, assessmentID); err != nil {
+		return err
+	}
+
 	// Verify question exists and user has access
 	canAccessQuestion, err := s.questionService.CanAccess(ctx, questionID, userID)
 	if err != nil {
@@ -420,8 +494,14 @@ func (s *assessmentService) AddQuestion(ctx context.Context, assessmentID, quest
 		return NewPermissionError(userID, questionID, "question", "access", "question not found or access denied")
 	}
 
-	// Add question to assessment
-	if err := s.repo.AssessmentQuestion().AddQuestion(ctx, s.db, assessmentID, questionID, order, points); err != nil {
+	// Validate total points would not exceed 100
+	if err := s.validateTotalPoints(ctx, nil, assessmentID, points, 0); err != nil {
+		return fmt.Errorf("points validation failed: %w", err)
+	}
+
+	// Add question to assessment (points is now required, not optional)
+	pointsPtr := &points
+	if err := s.repo.AssessmentQuestion().AddQuestion(ctx, s.db, assessmentID, questionID, order, pointsPtr); err != nil {
 		return fmt.Errorf("failed to add question to assessment: %w", err)
 	}
 
@@ -460,10 +540,269 @@ func (s *assessmentService) AddQuestions(ctx context.Context, assessmentID uint,
 	return nil
 }
 
+// AddQuestionsBatch adds multiple questions to assessment in a single transaction with points validation
+func (s *assessmentService) AddQuestionsBatch(ctx context.Context, assessmentID uint, questions []AssessmentQuestionRequest, userID string) error {
+	s.logger.Info("Adding multiple questions to assessment (batch)",
+		"assessment_id", assessmentID,
+		"question_count", len(questions),
+		"user_id", userID)
+
+	if len(questions) == 0 {
+		return fmt.Errorf("no questions provided")
+	}
+
+	// Check edit permission
+	canEdit, err := s.CanEdit(ctx, assessmentID, userID)
+	if err != nil {
+		return err
+	}
+	if !canEdit {
+		return NewPermissionError(userID, assessmentID, "assessment", "add_questions_batch", "not owner or assessment not editable")
+	}
+
+	// Begin transaction for atomic operation
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// 0. Validate assessment questions are editable (not locked by attempts)
+		if err := s.validateAssessmentQuestionsEditable(ctx, tx, assessmentID); err != nil {
+			return err
+		}
+
+		// 1. Get current total points
+		currentTotal, err := s.repo.AssessmentQuestion().GetTotalPoints(ctx, tx, assessmentID)
+		if err != nil {
+			return fmt.Errorf("failed to get current total points: %w", err)
+		}
+
+		// 2. Calculate new total points
+		newPointsTotal := 0
+		questionIDs := make([]uint, len(questions))
+		for i, q := range questions {
+			// Validate points range
+			if q.Points < 1 || q.Points > 100 {
+				return fmt.Errorf("question %d has invalid points %d (must be 1-100)", q.QuestionID, q.Points)
+			}
+			newPointsTotal += q.Points
+			questionIDs[i] = q.QuestionID
+
+			// Verify question exists
+			_, err := s.repo.Question().GetByID(ctx, tx, q.QuestionID)
+			if err != nil {
+				if repositories.IsNotFoundError(err) {
+					return fmt.Errorf("question %d not found", q.QuestionID)
+				}
+				return fmt.Errorf("failed to verify question %d: %w", q.QuestionID, err)
+			}
+		}
+
+		// 3. Validate total points would not exceed 100
+		finalTotal := currentTotal + newPointsTotal
+		if finalTotal > 100 {
+			return fmt.Errorf("total points (%d) would exceed maximum allowed (100). Current: %d, adding: %d",
+				finalTotal, currentTotal, newPointsTotal)
+		}
+
+		// 4. Check for existing relationships
+		var existingCount int64
+		if err := tx.Model(&models.AssessmentQuestion{}).
+			Where("assessment_id = ? AND question_id IN ?", assessmentID, questionIDs).
+			Count(&existingCount).Error; err != nil {
+			return fmt.Errorf("failed to check existing questions: %w", err)
+		}
+		if existingCount > 0 {
+			return fmt.Errorf("some questions are already in this assessment")
+		}
+
+		// 5. Batch create AssessmentQuestions
+		assessmentQuestions := make([]*models.AssessmentQuestion, len(questions))
+		for i, q := range questions {
+			assessmentQuestions[i] = &models.AssessmentQuestion{
+				AssessmentID: assessmentID,
+				QuestionID:   q.QuestionID,
+				Order:        q.Order,
+				Points:       &q.Points,
+				Required:     true,
+			}
+		}
+
+		// 6. Batch insert
+		if err := s.repo.AssessmentQuestion().CreateBatch(ctx, tx, assessmentQuestions); err != nil {
+			return fmt.Errorf("failed to batch create assessment questions: %w", err)
+		}
+
+		s.logger.Info("Batch insert successful",
+			"assessment_id", assessmentID,
+			"questions_added", len(questions),
+			"new_total_points", finalTotal)
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	s.logger.Info("Questions added to assessment successfully (batch)",
+		"assessment_id", assessmentID,
+		"question_count", len(questions))
+
+	return nil
+}
+
+// AutoAssignQuestions adds multiple questions to assessment with automatic point rebalancing
+// Points are calculated automatically: 100 / total_questions (existing + new)
+// This REBALANCES all existing questions to equal points
+// Protected by lock policy: only works when assessment has no attempts
+func (s *assessmentService) AutoAssignQuestions(ctx context.Context, assessmentID uint, questionIDs []uint, userID string) error {
+	s.logger.Info("Auto-assigning questions to assessment (with rebalance)",
+		"assessment_id", assessmentID,
+		"new_question_count", len(questionIDs),
+		"user_id", userID)
+
+	if len(questionIDs) == 0 {
+		return fmt.Errorf("no questions provided")
+	}
+
+	// Check edit permission
+	canEdit, err := s.CanEdit(ctx, assessmentID, userID)
+	if err != nil {
+		return err
+	}
+	if !canEdit {
+		return NewPermissionError(userID, assessmentID, "assessment", "auto_assign_questions", "not owner or assessment not editable")
+	}
+
+	// Begin transaction for atomic operation
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// 0. Validate assessment questions are editable (not locked by attempts)
+		// This prevents rebalancing when students have started
+		if err := s.validateAssessmentQuestionsEditable(ctx, tx, assessmentID); err != nil {
+			return err
+		}
+
+		// 1. Calculate auto-assigned points for ALL questions (existing + new)
+		basePoints, remainder, err := s.calculateAutoAssignPoints(ctx, tx, assessmentID, len(questionIDs))
+		if err != nil {
+			return err // Error already contains user-friendly message
+		}
+
+		// 2. Verify all new questions exist and user has access
+		for _, qid := range questionIDs {
+			// Verify question exists
+			_, err := s.repo.Question().GetByID(ctx, tx, qid)
+			if err != nil {
+				if repositories.IsNotFoundError(err) {
+					return fmt.Errorf("question %d not found", qid)
+				}
+				return fmt.Errorf("failed to verify question %d: %w", qid, err)
+			}
+
+			// Check access
+			canAccessQuestion, err := s.questionService.CanAccess(ctx, qid, userID)
+			if err != nil {
+				return fmt.Errorf("failed to check access for question %d: %w", qid, err)
+			}
+			if !canAccessQuestion {
+				return fmt.Errorf("no access to question %d", qid)
+			}
+		}
+
+		// 3. Check for existing relationships (prevent duplicates)
+		var existingCount int64
+		if err := tx.Model(&models.AssessmentQuestion{}).
+			Where("assessment_id = ? AND question_id IN ?", assessmentID, questionIDs).
+			Count(&existingCount).Error; err != nil {
+			return fmt.Errorf("failed to check existing questions: %w", err)
+		}
+		if existingCount > 0 {
+			return fmt.Errorf("some questions are already in this assessment")
+		}
+
+		// 4. Get ALL existing AssessmentQuestions
+		var existingQuestions []*models.AssessmentQuestion
+		if err := tx.Where("assessment_id = ?", assessmentID).
+			Order(`"order" ASC`).
+			Find(&existingQuestions).Error; err != nil {
+			return fmt.Errorf("failed to get existing questions: %w", err)
+		}
+
+		// 5. Rebalance ALL existing questions with new points
+		// First N questions (where N = remainder) get basePoints + 1, rest get basePoints
+		totalQuestions := len(existingQuestions) + len(questionIDs)
+
+		for i, aq := range existingQuestions {
+			newPoints := basePoints
+			if i < remainder {
+				newPoints++ // First N questions get extra point
+			}
+			aq.Points = &newPoints
+
+			if err := s.repo.AssessmentQuestion().Update(ctx, tx, aq); err != nil {
+				return fmt.Errorf("failed to update question %d points: %w", aq.QuestionID, err)
+			}
+		}
+
+		// 6. Get next order number for new questions
+		var maxOrder int
+		if err := tx.Model(&models.AssessmentQuestion{}).
+			Where("assessment_id = ?", assessmentID).
+			Select(`COALESCE(MAX("order"), 0)`).
+			Scan(&maxOrder).Error; err != nil {
+			return fmt.Errorf("failed to get max order: %w", err)
+		}
+
+		// 7. Add new questions with calculated points
+		// Continue remainder distribution from where existing questions left off
+		assessmentQuestions := make([]*models.AssessmentQuestion, len(questionIDs))
+		for i, qid := range questionIDs {
+			// Index in total questions (for remainder calculation)
+			totalIndex := len(existingQuestions) + i
+
+			newPoints := basePoints
+			if totalIndex < remainder {
+				newPoints++ // Continue remainder distribution
+			}
+
+			assessmentQuestions[i] = &models.AssessmentQuestion{
+				AssessmentID: assessmentID,
+				QuestionID:   qid,
+				Order:        maxOrder + i + 1,
+				Points:       &newPoints,
+				Required:     true,
+			}
+		}
+
+		// 8. Batch insert new questions
+		if err := s.repo.AssessmentQuestion().CreateBatch(ctx, tx, assessmentQuestions); err != nil {
+			return fmt.Errorf("failed to batch create assessment questions: %w", err)
+		}
+
+		s.logger.Info("Auto-assign with rebalance successful",
+			"assessment_id", assessmentID,
+			"existing_questions_rebalanced", len(existingQuestions),
+			"new_questions_added", len(questionIDs),
+			"total_questions", totalQuestions,
+			"points_per_question", basePoints,
+			"remainder", remainder)
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	s.logger.Info("Questions auto-assigned to assessment successfully (with rebalance)",
+		"assessment_id", assessmentID,
+		"new_question_count", len(questionIDs))
+
+	return nil
+}
+
 func (s *assessmentService) UpdateAssessmentQuestion(ctx context.Context, assessmentID, questionID uint, req *UpdateAssessmentQuestionRequest, userID string) error {
 	s.logger.Info("Updating assessment question",
 		"assessment_id", assessmentID,
 		"question_id", questionID,
+		"new_points", req.Points,
 		"user_id", userID)
 
 	// Check edit permission
@@ -475,16 +814,26 @@ func (s *assessmentService) UpdateAssessmentQuestion(ctx context.Context, assess
 		return NewPermissionError(userID, assessmentID, "assessment", "update_assessment_question", "not owner or assessment not editable")
 	}
 
+	// Validate assessment questions are editable (not locked by attempts)
+	if err := s.validateAssessmentQuestionsEditable(ctx, nil, assessmentID); err != nil {
+		return err
+	}
+
 	// Check if question is part of the assessment
 	assessmentQuestion, err := s.repo.AssessmentQuestion().GetQuestionAssessmentByAssessmentIdAndQuestionId(ctx, s.db, assessmentID, questionID)
 	if err != nil {
 		return fmt.Errorf("failed to check if question exists in assessment: %w", err)
 	}
 
-	// update assessment
-	if req.Points != nil { // Nếu DTO dùng *int
-		assessmentQuestion.Points = req.Points
+	// Validate total points would not exceed 100 (excluding current question's points)
+	if err := s.validateTotalPoints(ctx, nil, assessmentID, req.Points, questionID); err != nil {
+		return fmt.Errorf("points validation failed: %w", err)
 	}
+
+	// Update assessment question points (now required, not optional)
+	assessmentQuestion.Points = &req.Points
+
+	// NOTE: TimeLimit is stored but NOT used in attempt timing logic. Assessment.Duration is used instead.
 	if req.TimeLimit != nil {
 		assessmentQuestion.TimeLimit = req.TimeLimit
 	}
@@ -495,7 +844,8 @@ func (s *assessmentService) UpdateAssessmentQuestion(ctx context.Context, assess
 
 	s.logger.Info("Assessment question updated successfully",
 		"assessment_id", assessmentID,
-		"question_id", questionID)
+		"question_id", questionID,
+		"updated_points", req.Points)
 	return nil
 }
 
@@ -512,6 +862,11 @@ func (s *assessmentService) RemoveQuestions(ctx context.Context, assessmentID ui
 	}
 	if !canEdit {
 		return NewPermissionError(userID, assessmentID, "assessment", "remove_questions", "not owner or assessment not editable")
+	}
+
+	// Validate assessment questions are editable (not locked by attempts)
+	if err := s.validateAssessmentQuestionsEditable(ctx, nil, assessmentID); err != nil {
+		return err
 	}
 
 	// Remove questions from assessment
@@ -542,6 +897,43 @@ func (s *assessmentService) UpdateAssessmentQuestionBatch(ctx context.Context, a
 
 	// Update assessment questions in batch
 	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// 0. Validate assessment questions are editable (not locked by attempts)
+		if err := s.validateAssessmentQuestionsEditable(ctx, tx, assessmentID); err != nil {
+			return err
+		}
+
+		// First, get current total points and build a map of question IDs being updated
+		currentTotal, err := s.repo.AssessmentQuestion().GetTotalPoints(ctx, tx, assessmentID)
+		if err != nil {
+			return fmt.Errorf("failed to get current total points: %w", err)
+		}
+
+		// Calculate new total by subtracting old points and adding new points for each question
+		updatedQuestionPoints := make(map[uint]int)
+		for _, req := range reqs {
+			// Get current points for this question
+			assessmentQuestion, err := s.repo.AssessmentQuestion().GetQuestionAssessmentByAssessmentIdAndQuestionId(ctx, tx, assessmentID, req.QuestionId)
+			if err != nil {
+				return fmt.Errorf("failed to get assessment question (question_id: %d): %w", req.QuestionId, err)
+			}
+
+			// Track old and new points
+			oldPoints := 0
+			if assessmentQuestion.Points != nil {
+				oldPoints = *assessmentQuestion.Points
+			}
+			currentTotal -= oldPoints
+			currentTotal += req.Points
+
+			updatedQuestionPoints[req.QuestionId] = req.Points
+		}
+
+		// Validate new total
+		if currentTotal > 100 {
+			return fmt.Errorf("total points (%d) would exceed maximum allowed (100) after batch update", currentTotal)
+		}
+
+		// Now perform the updates
 		for _, req := range reqs {
 			// Get assessment question
 			assessmentQuestion, err := s.repo.AssessmentQuestion().GetQuestionAssessmentByAssessmentIdAndQuestionId(ctx, tx, assessmentID, req.QuestionId)
@@ -549,10 +941,10 @@ func (s *assessmentService) UpdateAssessmentQuestionBatch(ctx context.Context, a
 				return fmt.Errorf("failed to get assessment question (question_id: %d): %w", req.QuestionId, err)
 			}
 
-			// Update fields
-			if req.Points != nil { // Nếu DTO dùng *int
-				assessmentQuestion.Points = req.Points
-			}
+			// Update fields (Points is now required, not optional)
+			assessmentQuestion.Points = &req.Points
+
+			// NOTE: TimeLimit is stored but NOT used in attempt timing logic. Assessment.Duration is used instead.
 			if req.TimeLimit != nil {
 				assessmentQuestion.TimeLimit = req.TimeLimit
 			}
@@ -587,6 +979,11 @@ func (s *assessmentService) RemoveQuestion(ctx context.Context, assessmentID, qu
 		return NewPermissionError(userID, assessmentID, "assessment", "remove_question", "not owner or assessment not editable")
 	}
 
+	// Validate assessment questions are editable (not locked by attempts)
+	if err := s.validateAssessmentQuestionsEditable(ctx, nil, assessmentID); err != nil {
+		return err
+	}
+
 	// Remove question from assessment
 	if err := s.repo.AssessmentQuestion().RemoveQuestion(ctx, s.db, assessmentID, questionID); err != nil {
 		return fmt.Errorf("failed to remove question from assessment: %w", err)
@@ -612,6 +1009,11 @@ func (s *assessmentService) ReorderQuestions(ctx context.Context, assessmentID u
 	}
 	if !canEdit {
 		return NewPermissionError(userID, assessmentID, "assessment", "reorder_questions", "not owner or assessment not editable")
+	}
+
+	// Validate assessment questions are editable (not locked by attempts)
+	if err := s.validateAssessmentQuestionsEditable(ctx, nil, assessmentID); err != nil {
+		return err
 	}
 
 	// Reorder questions

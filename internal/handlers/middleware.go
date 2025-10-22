@@ -3,12 +3,13 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/SAP-F-2025/assessment-service/internal/utils"
 	"github.com/gin-gonic/gin"
 	uuid2 "github.com/google/uuid"
 )
 
 // SetupMiddleware sets up common middleware for the Gin router
-func SetupMiddleware(router *gin.Engine) {
+func SetupMiddleware(router *gin.Engine, logger utils.Logger) {
 	// Request ID middleware (simplified)
 	router.Use(RequestIDMiddleware())
 
@@ -18,8 +19,11 @@ func SetupMiddleware(router *gin.Engine) {
 	// Recovery middleware
 	router.Use(gin.Recovery())
 
+	// Context logger middleware (adds logger with request_id to context)
+	router.Use(utils.ContextLogger(logger))
+
 	// Custom logging middleware
-	router.Use(LoggerMiddleware())
+	router.Use(utils.LoggerMiddleware(logger))
 
 	// Security headers middleware
 	router.Use(SecurityMiddleware())

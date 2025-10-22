@@ -31,10 +31,16 @@ tags:
     description: Quản lý câu hỏi
   - name: question-banks
     description: Quản lý ngân hàng câu hỏi
+  - name: users
+    description: Quản lý người dùng (dùng để share question bank)
   - name: attempts
     description: Quản lý lần thử bài thi
   - name: grading
     description: Hệ thống chấm điểm
+  - name: dashboard
+    description: Dashboard statistics and analytics
+  - name: students
+    description: Student panel endpoints
   - name: health
     description: Health check endpoints
 
@@ -96,7 +102,13 @@ paths:
       tags:
         - assessments
       summary: Danh sách bài thi
-      description: Lấy danh sách bài thi với bộ lọc
+      description: |
+        Lấy danh sách bài thi với bộ lọc.
+
+        **Role-based filtering:**
+        - **Students:** Chỉ thấy assessments Active và chưa quá due_date
+        - **Teachers:** Chỉ thấy assessments của chính họ
+        - **Admins:** Thấy tất cả assessments
       parameters:
         - name: page
           in: query
@@ -144,7 +156,13 @@ paths:
       tags:
         - assessments
       summary: Tìm kiếm bài thi
-      description: Tìm kiếm bài thi theo từ khóa
+      description: |
+        Tìm kiếm bài thi theo từ khóa.
+
+        **Role-based filtering:**
+        - **Students:** Chỉ thấy assessments Active và chưa quá due_date
+        - **Teachers:** Chỉ thấy assessments của chính họ
+        - **Admins:** Thấy tất cả assessments
       parameters:
         - name: q
           in: query
@@ -485,6 +503,210 @@ paths:
       responses:
         '200':
           description: Xóa câu hỏi thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags:
+        - assessments
+      summary: Cập nhật cài đặt câu hỏi trong bài thi
+      description: Cập nhật điểm và giới hạn thời gian cho câu hỏi trong bài thi
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID bài thi
+          schema:
+            type: integer
+            format: uint32
+        - name: question_id
+          in: path
+          required: true
+          description: ID câu hỏi
+          schema:
+            type: integer
+            format: uint32
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                points:
+                  type: integer
+                  description: Điểm cho câu hỏi (tùy chọn)
+                  minimum: 1
+                  maximum: 100
+                time_limit:
+                  type: integer
+                  description: Giới hạn thời gian tính bằng giây (tùy chọn)
+                  minimum: 30
+                  maximum: 3600
+              example:
+                points: 15
+                time_limit: 600
+      responses:
+        '200':
+          description: Cập nhật câu hỏi thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/assessments/{id}/questions/batch:
+    post:
+      tags:
+        - assessments
+      summary: Thêm nhiều câu hỏi vào bài thi
+      description: Thêm nhiều câu hỏi vào bài thi cùng một lúc (batch operation)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID bài thi
+          schema:
+            type: integer
+            format: uint32
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - question_ids
+              properties:
+                question_ids:
+                  type: array
+                  description: Danh sách ID câu hỏi cần thêm
+                  items:
+                    type: integer
+                    format: uint32
+                  minItems: 1
+                  example: [101, 102, 103, 104]
+      responses:
+        '200':
+          description: Thêm câu hỏi thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags:
+        - assessments
+      summary: Xóa nhiều câu hỏi khỏi bài thi
+      description: Xóa nhiều câu hỏi khỏi bài thi cùng một lúc (batch operation)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID bài thi
+          schema:
+            type: integer
+            format: uint32
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - question_ids
+              properties:
+                question_ids:
+                  type: array
+                  description: Danh sách ID câu hỏi cần xóa
+                  items:
+                    type: integer
+                    format: uint32
+                  minItems: 1
+                  example: [101, 102]
+      responses:
+        '200':
+          description: Xóa câu hỏi thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags:
+        - assessments
+      summary: Cập nhật nhiều câu hỏi trong bài thi
+      description: Cập nhật cài đặt cho nhiều câu hỏi cùng một lúc (batch operation)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID bài thi
+          schema:
+            type: integer
+            format: uint32
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                required:
+                  - question_id
+                properties:
+                  question_id:
+                    type: integer
+                    format: uint32
+                    description: ID câu hỏi
+                  points:
+                    type: integer
+                    description: Điểm cho câu hỏi (tùy chọn)
+                    minimum: 1
+                    maximum: 100
+                  time_limit:
+                    type: integer
+                    description: Giới hạn thời gian tính bằng giây (tùy chọn)
+                    minimum: 30
+                    maximum: 3600
+              example:
+                - question_id: 101
+                  points: 10
+                  time_limit: 300
+                - question_id: 102
+                  points: 20
+                  time_limit: 600
+                - question_id: 103
+                  time_limit: 450
+      responses:
+        '200':
+          description: Cập nhật câu hỏi thành công
           content:
             application/json:
               schema:
@@ -1744,6 +1966,129 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  # User Endpoints (for sharing purposes)
+  /api/v1/users:
+    get:
+      tags:
+        - users
+      summary: Danh sách người dùng
+      description: Lấy danh sách người dùng (dùng để chọn user khi share question bank)
+      parameters:
+        - name: page
+          in: query
+          description: Số trang
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          description: Kích thước trang
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: q
+          in: query
+          description: Tìm kiếm theo tên hoặc email
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: Lọc theo role
+          schema:
+            $ref: '#/components/schemas/UserRole'
+      responses:
+        '200':
+          description: Danh sách người dùng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/users/search:
+    get:
+      tags:
+        - users
+      summary: Tìm kiếm người dùng
+      description: Tìm kiếm người dùng theo tên hoặc email
+      parameters:
+        - name: q
+          in: query
+          description: Từ khóa tìm kiếm
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Số trang
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          description: Kích thước trang
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: role
+          in: query
+          description: Lọc theo role
+          schema:
+            $ref: '#/components/schemas/UserRole'
+      responses:
+        '200':
+          description: Kết quả tìm kiếm
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/users/{id}:
+    get:
+      tags:
+        - users
+      summary: Lấy thông tin người dùng
+      description: Lấy thông tin chi tiết của một người dùng theo ID
+      parameters:
+        - name: id
+          in: path
+          description: ID người dùng
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Thông tin người dùng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/v1/attempts:
     get:
       tags:
@@ -1914,7 +2259,7 @@ paths:
       tags:
         - attempts
       summary: Thời gian còn lại
-      description: Lấy thời gian còn lại của lần thử
+      description: Lấy thời gian còn lại của lần thử (tính bằng giây)
       parameters:
         - name: id
           in: path
@@ -1931,16 +2276,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  time_remaining:
+                  message:
+                    type: string
+                    example: "Time remaining retrieved successfully"
+                  data:
                     type: integer
                     description: Thời gian còn lại (giây)
-                  total_time:
-                    type: integer
-                    description: Tổng thời gian (giây)
-                  percentage:
-                    type: number
-                    format: float
-                    description: Phần trăm thời gian đã sử dụng
+                    example: 3600
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -2043,14 +2385,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  is_active:
+                  message:
+                    type: string
+                    example: "Active check completed"
+                  data:
                     type: boolean
                     description: Có đang hoạt động không
-                  status:
-                    $ref: '#/components/schemas/AttemptStatus'
-                  time_remaining:
-                    type: integer
-                    description: Thời gian còn lại (giây)
+                    example: true
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -2111,22 +2452,13 @@ paths:
               schema:
                 type: object
                 properties:
+                  message:
+                    type: string
+                    example: "Can start attempt check completed"
                   can_start:
                     type: boolean
                     description: Có thể bắt đầu không
-                  reason:
-                    type: string
-                    description: Lý do nếu không thể bắt đầu
-                  attempts_used:
-                    type: integer
-                    description: Số lần thử đã sử dụng
-                  max_attempts:
-                    type: integer
-                    description: Số lần thử tối đa
-                  next_attempt_time:
-                    type: string
-                    format: date-time
-                    description: Thời gian có thể thử lần tiếp theo
+                    example: true
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -2154,18 +2486,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  total_attempts:
+                  message:
+                    type: string
+                    example: "Attempt count retrieved successfully"
+                  data:
                     type: integer
-                    description: Tổng số lần thử
-                  completed_attempts:
-                    type: integer
-                    description: Số lần thử hoàn thành
-                  in_progress_attempts:
-                    type: integer
-                    description: Số lần thử đang thực hiện
-                  max_attempts:
-                    type: integer
-                    description: Số lần thử tối đa
+                    description: Số lần thử
+                    example: 3
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -2241,8 +2568,14 @@ paths:
     get:
       tags:
         - attempts
-      summary: Lần thử theo học sinh
-      description: Lấy danh sách lần thử của một học sinh cụ thể
+      summary: Lần thử theo học sinh (Teachers/Admins only)
+      description: |
+        Lấy danh sách lần thử của một học sinh cụ thể.
+
+        **Yêu cầu phân quyền:** Chỉ Teachers và Admins có thể truy cập endpoint này.
+
+        **Lưu ý bảo mật:** Students không thể sử dụng endpoint này để xem attempts của học sinh khác.
+        Students nên sử dụng `/api/v1/students/me/attempts` để xem attempts của chính mình.
       parameters:
         - name: student_id
           in: path
@@ -2800,6 +3133,318 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  # Dashboard Endpoints
+  /api/v1/dashboard/stats:
+    get:
+      tags:
+        - dashboard
+      summary: Dashboard statistics
+      description: Lấy tổng quan metrics và trends cho dashboard
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          description: Khoảng thời gian (ngày) để tính trends
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/dashboard/activity-trends:
+    get:
+      tags:
+        - dashboard
+      summary: Activity trends
+      description: Xu hướng hoạt động theo thời gian
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          description: Khoảng thời gian
+          schema:
+            type: string
+            enum: [week, month, year]
+            default: month
+      responses:
+        '200':
+          description: Activity trends data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ActivityTrend'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/dashboard/recent-activities:
+    get:
+      tags:
+        - dashboard
+      summary: Recent activities
+      description: Danh sách hoạt động gần đây
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Số lượng activities
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Recent activities list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecentActivity'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/dashboard/question-distribution:
+    get:
+      tags:
+        - dashboard
+      summary: Question type distribution
+      description: Phân bổ câu hỏi theo loại
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Question distribution data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuestionDistribution'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/dashboard/performance-by-subject:
+    get:
+      tags:
+        - dashboard
+      summary: Performance by subject
+      description: Điểm số trung bình theo môn học/category
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Số lượng subjects
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 5
+      responses:
+        '200':
+          description: Performance by subject data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubjectPerformance'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Student Endpoints
+  /api/v1/students/me/stats:
+    get:
+      tags:
+        - students
+      summary: Get student statistics
+      description: Lấy thống kê tổng quan cho student hiện tại (dashboard stats)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Student statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentStatsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/students/me/assessments:
+    get:
+      tags:
+        - students
+      summary: Get available assessments for student
+      description: Lấy danh sách assessments available cho student hiện tại với student-specific context
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          description: Page size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [available, in_progress, completed, expired]
+        - name: sort_by
+          in: query
+          description: Sort field
+          schema:
+            type: string
+            enum: [due_date, created_at, title]
+            default: created_at
+      responses:
+        '200':
+          description: Assessments retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentAssessmentsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/students/me/assessments/{id}:
+    get:
+      tags:
+        - students
+      summary: Get assessment detail with student context
+      description: Lấy chi tiết assessment với student-specific context (attempts history, scores, etc.)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Assessment ID
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Assessment detail retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentAssessmentDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/students/me/attempts:
+    get:
+      tags:
+        - students
+      summary: Get student attempt history
+      description: Lấy lịch sử attempts của student hiện tại (an toàn hơn /attempts/student/{id})
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          description: Page size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: assessment_id
+          in: query
+          description: Filter by assessment ID
+          schema:
+            type: integer
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [in_progress, completed, abandoned, timeout]
+        - name: from_date
+          in: query
+          description: Filter from date (RFC3339 format)
+          schema:
+            type: string
+            format: date-time
+        - name: to_date
+          in: query
+          description: Filter to date (RFC3339 format)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Attempts retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentAttemptsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -2864,6 +3509,11 @@ components:
       type: string
       enum: [in_progress, completed, abandoned, timeout]
       description: Trạng thái lần thử
+
+    UserRole:
+      type: string
+      enum: [student, teacher, proctor, admin]
+      description: Vai trò người dùng
 
     # Request Schemas
     AssessmentCreateRequest:
@@ -3231,22 +3881,28 @@ components:
           type: integer
           minimum: 0
           description: Thời gian trả lời (giây)
-        flagged:
-          type: boolean
-          description: Đánh dấu để xem lại
 
     CompleteAttemptRequest:
       type: object
+      required: [attempt_id, answers]
       properties:
-        final_answers:
+        attempt_id:
+          type: integer
+          format: uint32
+          description: ID lần thử
+        answers:
           type: array
           items:
             $ref: '#/components/schemas/SubmitAnswerRequest'
-          description: Câu trả lời cuối cùng
+          description: Danh sách câu trả lời
         time_spent:
           type: integer
           minimum: 0
           description: Tổng thời gian làm bài (giây)
+        end_reason:
+          type: string
+          description: Lý do kết thúc (timeout, manual_submit, auto_submit)
+          example: "manual_submit"
 
     GradeAnswerRequest:
       type: object
@@ -3882,28 +4538,30 @@ components:
 
     PaginatedAttemptResponse:
       type: object
+      description: Danh sách lần thử có phân trang
       properties:
-        content:
+        data:
           type: array
           items:
             $ref: '#/components/schemas/AttemptResponse'
-        total_elements:
+          description: Danh sách lần thử
+        total:
           type: integer
           format: int64
-        total_pages:
-          type: integer
-        size:
-          type: integer
+          description: Tổng số lần thử
+          example: 100
         page:
           type: integer
-        first:
-          type: boolean
-        last:
-          type: boolean
-        number_of_elements:
+          description: Số trang hiện tại
+          example: 1
+        size:
           type: integer
-        empty:
-          type: boolean
+          description: Kích thước trang
+          example: 10
+        total_pages:
+          type: integer
+          description: Tổng số trang
+          example: 10
 
     TimeBucket:
       type: object
@@ -4083,78 +4741,132 @@ components:
     # Pagination
     PaginatedAssessmentResponse:
       type: object
+      description: Danh sách bài thi có phân trang
       properties:
-        content:
+        assessments:
           type: array
           items:
             $ref: '#/components/schemas/AssessmentResponse'
-        total_elements:
+          description: Danh sách bài thi
+        total:
           type: integer
           format: int64
-        total_pages:
-          type: integer
-        size:
-          type: integer
+          description: Tổng số bài thi
+          example: 100
         page:
           type: integer
-        first:
-          type: boolean
-        last:
-          type: boolean
-        number_of_elements:
+          description: Số trang hiện tại
+          example: 1
+        size:
           type: integer
-        empty:
-          type: boolean
+          description: Kích thước trang
+          example: 10
 
     PaginatedQuestionResponse:
       type: object
+      description: Danh sách câu hỏi có phân trang
       properties:
-        content:
+        questions:
           type: array
           items:
             $ref: '#/components/schemas/QuestionResponse'
-        total_elements:
+          description: Danh sách câu hỏi
+        total:
           type: integer
           format: int64
-        total_pages:
-          type: integer
-        size:
-          type: integer
+          description: Tổng số câu hỏi
+          example: 100
         page:
           type: integer
-        first:
-          type: boolean
-        last:
-          type: boolean
-        number_of_elements:
+          description: Số trang hiện tại
+          example: 1
+        size:
           type: integer
-        empty:
-          type: boolean
+          description: Kích thước trang
+          example: 10
 
     PaginatedQuestionBankResponse:
       type: object
+      description: Danh sách ngân hàng câu hỏi có phân trang
       properties:
-        content:
+        banks:
           type: array
           items:
             $ref: '#/components/schemas/QuestionBankResponse'
-        total_elements:
+          description: Danh sách ngân hàng câu hỏi
+        total:
           type: integer
           format: int64
-        total_pages:
-          type: integer
-        size:
-          type: integer
+          description: Tổng số ngân hàng câu hỏi
+          example: 100
         page:
           type: integer
-        first:
-          type: boolean
-        last:
-          type: boolean
-        number_of_elements:
+          description: Số trang hiện tại
+          example: 1
+        size:
           type: integer
-        empty:
+          description: Kích thước trang
+          example: 10
+
+    User:
+      type: object
+      description: Thông tin người dùng
+      properties:
+        id:
+          type: string
+          description: ID người dùng
+          example: "user_123abc"
+        full_name:
+          type: string
+          description: Tên đầy đủ
+          example: "Nguyễn Văn A"
+        email:
+          type: string
+          format: email
+          description: Email
+          example: "nguyenvana@example.com"
+        role:
+          $ref: '#/components/schemas/UserRole'
+        avatar_url:
+          type: string
+          format: uri
+          description: URL ảnh đại diện
+          example: "https://example.com/avatar.jpg"
+        email_verified:
           type: boolean
+          description: Email đã được xác thực chưa
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          description: Thời gian tạo
+        updated_at:
+          type: string
+          format: date-time
+          description: Thời gian cập nhật
+
+    UserListResponse:
+      type: object
+      description: Danh sách người dùng có phân trang
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+          description: Danh sách người dùng
+        total:
+          type: integer
+          format: int64
+          description: Tổng số người dùng
+          example: 100
+        page:
+          type: integer
+          description: Số trang hiện tại
+          example: 1
+        size:
+          type: integer
+          description: Kích thước trang
+          example: 10
 
     # Common Response Types
     SuccessResponse:
@@ -4174,39 +4886,45 @@ components:
 
     ErrorResponse:
       type: object
+      description: |
+        Cấu trúc response lỗi chuẩn.
+
+        **Lưu ý:** Backend hiện tại chỉ implement các fields cơ bản (message, details, code).
+        Các fields nâng cao khác (error, timestamp, path, validation_errors, business_rule_violations)
+        được định nghĩa để mở rộng trong tương lai.
       properties:
-        error:
-          type: string
-          description: Mã lỗi
-          example: "VALIDATION_FAILED"
         message:
           type: string
-          description: Thông báo lỗi
+          description: Thông báo lỗi (LUÔN có)
           example: "Dữ liệu đầu vào không hợp lệ"
-        code:
-          type: string
-          description: Mã lỗi chi tiết
-          example: "INVALID_INPUT"
         details:
           type: object
           description: Chi tiết lỗi (tùy chọn)
+        code:
+          type: string
+          description: Mã lỗi chi tiết (tùy chọn)
+          example: "INVALID_INPUT"
+        error:
+          type: string
+          description: Mã lỗi tổng quát (tùy chọn, chưa implement)
+          example: "VALIDATION_FAILED"
         timestamp:
           type: string
           format: date-time
-          description: Thời gian
+          description: Thời gian (tùy chọn, chưa implement)
         path:
           type: string
-          description: Đường dẫn API gây lỗi
+          description: Đường dẫn API gây lỗi (tùy chọn, chưa implement)
         validation_errors:
           type: array
           items:
             $ref: '#/components/schemas/ValidationErrorResponse'
-          description: Lỗi validation chi tiết
+          description: Lỗi validation chi tiết (tùy chọn, chưa implement)
         business_rule_violations:
           type: array
           items:
             $ref: '#/components/schemas/BusinessRuleViolation'
-          description: Vi phạm quy tắc nghiệp vụ
+          description: Vi phạm quy tắc nghiệp vụ (tùy chọn, chưa implement)
 
     ValidationErrorResponse:
       type: object
@@ -4240,3 +4958,409 @@ components:
         can_override:
           type: boolean
           description: Có thể ghi đè không
+
+    # Dashboard Schemas
+    DashboardStats:
+      type: object
+      properties:
+        overview:
+          type: object
+          properties:
+            total_assessments:
+              type: integer
+              example: 150
+            total_questions:
+              type: integer
+              example: 1080
+            total_question_banks:
+              type: integer
+              example: 12
+            total_attempts:
+              type: integer
+              example: 2340
+            active_users:
+              type: integer
+              example: 165
+        metrics:
+          type: object
+          properties:
+            completion_rate:
+              type: number
+              format: float
+              example: 85.5
+            average_score:
+              type: number
+              format: float
+              example: 78.3
+            pass_rate:
+              type: number
+              format: float
+              example: 72.8
+        trends:
+          type: object
+          properties:
+            assessments_change:
+              type: number
+              format: float
+              example: 12.5
+            attempts_change:
+              type: number
+              format: float
+              example: 8.3
+            score_change:
+              type: number
+              format: float
+              example: 2.1
+
+    ActivityTrend:
+      type: object
+      properties:
+        period:
+          type: string
+          example: "T1"
+        attempts:
+          type: integer
+          example: 45
+        users:
+          type: integer
+          example: 120
+        average_score:
+          type: number
+          format: float
+          example: 75.5
+
+    RecentActivity:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: uint32
+        user_id:
+          type: string
+        user_name:
+          type: string
+          example: "Nguyễn Văn A"
+        action:
+          type: string
+          enum: [completed_assessment, started_assessment, created_question, created_assessment, published_assessment]
+        assessment_id:
+          type: integer
+          format: uint32
+          nullable: true
+        assessment_title:
+          type: string
+          nullable: true
+        question_id:
+          type: integer
+          format: uint32
+          nullable: true
+        question_bank_name:
+          type: string
+          nullable: true
+        score:
+          type: number
+          format: float
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        time_ago:
+          type: string
+          example: "5 phút trước"
+
+    QuestionDistribution:
+      type: object
+      properties:
+        type:
+          type: string
+          example: "multiple_choice"
+        name:
+          type: string
+          example: "Trắc nghiệm"
+        count:
+          type: integer
+          example: 450
+        percentage:
+          type: number
+          format: float
+          example: 41.7
+
+    SubjectPerformance:
+      type: object
+      properties:
+        subject_id:
+          type: integer
+          format: uint32
+          nullable: true
+        subject_name:
+          type: string
+          example: "Toán học"
+        average_score:
+          type: number
+          format: float
+          example: 85.3
+        total_attempts:
+          type: integer
+          example: 234
+
+    # Student Panel Schemas
+    StudentStatsResponse:
+      type: object
+      properties:
+        overview:
+          type: object
+          properties:
+            total_assessments_available:
+              type: integer
+              example: 5
+            total_assessments_completed:
+              type: integer
+              example: 15
+            total_assessments_in_progress:
+              type: integer
+              example: 2
+            total_attempts:
+              type: integer
+              example: 28
+        performance:
+          type: object
+          properties:
+            average_score:
+              type: number
+              format: float
+              example: 78.5
+            pass_rate:
+              type: number
+              format: float
+              example: 85.0
+            highest_score:
+              type: number
+              format: float
+              example: 98.0
+            lowest_score:
+              type: number
+              format: float
+              example: 45.0
+        recent_attempts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                example: 123
+              assessment_id:
+                type: integer
+                example: 45
+              assessment_title:
+                type: string
+                example: "Toán học lớp 12"
+              score:
+                type: number
+                format: float
+                example: 85.0
+              passed:
+                type: boolean
+                example: true
+              completed_at:
+                type: string
+                format: date-time
+              time_spent:
+                type: integer
+                description: Time spent in seconds
+                example: 3600
+        upcoming_assessments:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                example: 46
+              title:
+                type: string
+                example: "Vật lý lớp 12"
+              due_date:
+                type: string
+                format: date-time
+                nullable: true
+              days_remaining:
+                type: integer
+                example: 4
+
+    StudentAssessmentsResponse:
+      type: object
+      properties:
+        assessments:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentAssessmentItem'
+        total:
+          type: integer
+          example: 25
+        page:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 10
+        total_pages:
+          type: integer
+          example: 3
+
+    StudentAssessmentItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: "Toán học lớp 12"
+        description:
+          type: string
+          nullable: true
+          example: "Bài kiểm tra chương 1"
+        duration:
+          type: integer
+          description: Duration in minutes
+          example: 60
+        passing_score:
+          type: number
+          format: float
+          example: 70.0
+        status:
+          type: string
+          enum: [Draft, Active, Expired, Archived]
+          example: "Active"
+        due_date:
+          type: string
+          format: date-time
+          nullable: true
+        questions_count:
+          type: integer
+          example: 20
+        total_points:
+          type: integer
+          example: 100
+        attempts_used:
+          type: integer
+          example: 1
+        max_attempts:
+          type: integer
+          example: 3
+        can_start:
+          type: boolean
+          example: true
+        has_active_attempt:
+          type: boolean
+          example: false
+        best_score:
+          type: number
+          format: float
+          nullable: true
+          example: 85.0
+        last_attempt_date:
+          type: string
+          format: date-time
+          nullable: true
+
+    StudentAssessmentDetailResponse:
+      type: object
+      properties:
+        assessment:
+          $ref: '#/components/schemas/AssessmentResponse'
+        student_context:
+          type: object
+          properties:
+            attempts_used:
+              type: integer
+              example: 2
+            max_attempts:
+              type: integer
+              example: 3
+            can_start:
+              type: boolean
+              example: true
+            has_active_attempt:
+              type: boolean
+              example: false
+            attempts_history:
+              type: array
+              items:
+                $ref: '#/components/schemas/StudentAttemptItem'
+            best_score:
+              type: number
+              format: float
+              nullable: true
+              example: 85.0
+            average_score:
+              type: number
+              format: float
+              nullable: true
+              example: 80.0
+
+    StudentAttemptsResponse:
+      type: object
+      properties:
+        attempts:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentAttemptItem'
+        total:
+          type: integer
+          example: 28
+        page:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 10
+        total_pages:
+          type: integer
+          example: 3
+
+    StudentAttemptItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 123
+        assessment_id:
+          type: integer
+          example: 45
+        assessment_title:
+          type: string
+          example: "Toán học lớp 12"
+        status:
+          type: string
+          enum: [in_progress, completed, abandoned, timeout]
+          example: "completed"
+        score:
+          type: number
+          format: float
+          example: 85.0
+        max_score:
+          type: integer
+          example: 100
+        passed:
+          type: boolean
+          example: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        time_spent:
+          type: integer
+          description: Time spent in seconds
+          example: 5400
+        questions_answered:
+          type: integer
+          example: 18
+        total_questions:
+          type: integer
+          example: 20

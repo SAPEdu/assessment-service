@@ -83,8 +83,8 @@ func (s *attemptService) Start(ctx context.Context, req *StartAttemptRequest, st
 			TimeRemaining: assessment.Duration * 60, // Convert minutes to seconds
 		}
 
-		// Calculate end time
-		endTime := attempt.StartedAt.Add(time.Duration(assessment.Duration) * time.Second)
+		// Calculate end time (Duration is in minutes, convert to time)
+		endTime := attempt.StartedAt.Add(time.Duration(assessment.Duration) * time.Minute)
 		attempt.EndedAt = &endTime
 
 		if err = s.repo.Attempt().Create(ctx, tx, attempt); err != nil {
@@ -181,6 +181,11 @@ func (s *attemptService) Submit(ctx context.Context, req *SubmitAttemptRequest, 
 		return nil, ErrAttemptAlreadySubmitted
 	}
 
+	// Check if attempt has expired
+	if attempt.EndedAt != nil && time.Now().After(*attempt.EndedAt) {
+		return nil, ErrAttemptTimeExpired
+	}
+
 	// Begin transaction
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		// Update all answers
@@ -216,12 +221,10 @@ func (s *attemptService) Submit(ctx context.Context, req *SubmitAttemptRequest, 
 		"student_id", studentID)
 
 	// Auto-grade if possible
-	go func() {
-		gradingService := NewGradingService(s.db, s.repo, s.logger, s.validator)
-		if _, err := gradingService.AutoGradeAttempt(context.Background(), req.AttemptID); err != nil {
-			s.logger.Error("Failed to auto-grade attempt", "attempt_id", req.AttemptID, "error", err)
-		}
-	}()
+	gradingService := NewGradingService(s.db, s.repo, s.logger, s.validator)
+	if _, err := gradingService.AutoGradeAttempt(context.Background(), req.AttemptID); err != nil {
+		s.logger.Error("Failed to auto-grade attempt", "attempt_id", req.AttemptID, "error", err)
+	}
 
 	// Return updated attempt
 	return s.GetByIDWithDetails(ctx, req.AttemptID, studentID)
