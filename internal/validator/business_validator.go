@@ -248,7 +248,7 @@ func (bv *BusinessValidator) registerBusinessRules() {
 	// question type validation
 	bv.validate.RegisterValidation("question_type", func(fl validator.FieldLevel) bool {
 		qType := fl.Field().String()
-		validTypes := []models.QuestionType{models.TrueFalse, models.MultipleChoice, models.Essay, models.Matching, models.Ordering, models.ShortAnswer}
+		validTypes := []models.QuestionType{models.TrueFalse, models.MultipleChoice, models.Essay, models.Matching, models.Ordering, models.ShortAnswer, models.FillInBlank}
 		for _, vt := range validTypes {
 			if models.QuestionType(qType) == vt {
 				return true

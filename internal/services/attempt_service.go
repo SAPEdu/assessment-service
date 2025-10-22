@@ -221,12 +221,10 @@ func (s *attemptService) Submit(ctx context.Context, req *SubmitAttemptRequest, 
 		"student_id", studentID)
 
 	// Auto-grade if possible
-	go func() {
-		gradingService := NewGradingService(s.db, s.repo, s.logger, s.validator)
-		if _, err := gradingService.AutoGradeAttempt(context.Background(), req.AttemptID); err != nil {
-			s.logger.Error("Failed to auto-grade attempt", "attempt_id", req.AttemptID, "error", err)
-		}
-	}()
+	gradingService := NewGradingService(s.db, s.repo, s.logger, s.validator)
+	if _, err := gradingService.AutoGradeAttempt(context.Background(), req.AttemptID); err != nil {
+		s.logger.Error("Failed to auto-grade attempt", "attempt_id", req.AttemptID, "error", err)
+	}
 
 	// Return updated attempt
 	return s.GetByIDWithDetails(ctx, req.AttemptID, studentID)
