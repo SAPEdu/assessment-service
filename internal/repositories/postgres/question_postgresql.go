@@ -110,8 +110,26 @@ func (q *QuestionPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) e
 		return fmt.Errorf("failed to get question before delete: %w", err)
 	}
 
-	if err := db.WithContext(ctx).Delete(&models.Question{}, id).Error; err != nil {
-		return fmt.Errorf("failed to delete question: %w", err)
+	err := db.Transaction(func(tx *gorm.DB) error {
+		// delete question in assessment_questions first due to foreign key constraint
+		if err := tx.WithContext(ctx).Where("question_id = ?", id).Delete(&models.AssessmentQuestion{}).Error; err != nil {
+			return fmt.Errorf("failed to delete question from assessment_questions: %w", err)
+		}
+
+		queryDeleteQuestionBank := `DELETE FROM question_bank_questions WHERE question_id = ?`
+		if err := tx.WithContext(ctx).Exec(queryDeleteQuestionBank, id).Error; err != nil {
+			return fmt.Errorf("failed to delete question from question_bank_questions: %w", err)
+		}
+		// delete the question
+		if err := db.WithContext(ctx).Delete(&models.Question{}, id).Error; err != nil {
+			return fmt.Errorf("failed to delete question: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
 	}
 
 	cache.InvalidateQuestionCache(ctx, q.cacheManager, id, question.CreatedBy)
