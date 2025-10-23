@@ -121,7 +121,7 @@ func (q *QuestionPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) e
 			return fmt.Errorf("failed to delete question from question_bank_questions: %w", err)
 		}
 		// delete the question
-		if err := db.WithContext(ctx).Delete(&models.Question{}, id).Error; err != nil {
+		if err := tx.WithContext(ctx).Delete(&models.Question{}, id).Error; err != nil {
 			return fmt.Errorf("failed to delete question: %w", err)
 		}
 
