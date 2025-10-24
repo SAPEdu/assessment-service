@@ -798,3 +798,16 @@ func (q *QuestionPostgreSQL) invalidateAssessmentCachesForQuestion(ctx context.C
 		cache.SafeInvalidatePattern(ctx, q.cacheManager.Stats, fmt.Sprintf("assessment:%d:*", assessmentID))
 	}
 }
+
+func (q *QuestionPostgreSQL) IsExistInAttempt(ctx context.Context, tx *gorm.DB, id uint) (bool, error) {
+	db := q.getDB(tx)
+	var count int64
+	if err := db.WithContext(ctx).
+		Table("student_answers").
+		Where("question_id = ?", id).
+		Count(&count).Error; err != nil {
+		return false, fmt.Errorf("failed to check question existence in attempts: %w", err)
+	}
+
+	return count > 0, nil
+}

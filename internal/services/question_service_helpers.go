@@ -133,13 +133,23 @@ func (s *questionService) CanDelete(ctx context.Context, questionID uint, userID
 	}
 
 	// Check if question is in use by assessments
-	inUse, err := s.repo.Question().IsUsedInAssessments(ctx, nil, questionID)
+	inUse, err := s.repo.Question().IsUsedInAssessments(ctx, s.db, questionID)
 	if err != nil {
 		return false, err
 	}
 
 	// Cannot delete if in use (except admin override)
 	if inUse && userRole != models.RoleAdmin {
+		return false, nil
+	}
+
+	isExistInAttempts, err := s.repo.Question().IsExistInAttempt(ctx, s.db, questionID)
+	if err != nil {
+		return false, err
+	}
+
+	// Cannot delete if exists in attempts
+	if isExistInAttempts {
 		return false, nil
 	}
 
