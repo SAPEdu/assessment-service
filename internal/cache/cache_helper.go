@@ -40,13 +40,13 @@ var (
 
 	// Medium-lived cache for assessment data
 	AssessmentCacheConfig = CacheConfig{
-		TTL:    15 * time.Minute,
+		TTL:    5 * time.Minute,
 		Prefix: "assessment:",
 	}
 
 	// Long-lived cache for question data (less frequently changed)
 	QuestionCacheConfig = CacheConfig{
-		TTL:    30 * time.Minute,
+		TTL:    5 * time.Minute,
 		Prefix: "question:",
 	}
 
@@ -58,7 +58,7 @@ var (
 
 	// Stats cache for expensive queries
 	StatsCacheConfig = CacheConfig{
-		TTL:    10 * time.Minute,
+		TTL:    5 * time.Minute,
 		Prefix: "stats:",
 	}
 )

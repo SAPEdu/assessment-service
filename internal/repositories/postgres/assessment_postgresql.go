@@ -75,7 +75,7 @@ func (a *AssessmentPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.
 	cacheKey := fmt.Sprintf("details:%d", id)
 	var assessment models.Assessment
 
-	err := a.cacheManager.Assessment.CacheOrExecute(ctx, cacheKey, &assessment, 10*time.Minute, func() (interface{}, error) {
+	err := a.cacheManager.Assessment.CacheOrExecute(ctx, cacheKey, &assessment, cache.AssessmentCacheConfig.TTL, func() (interface{}, error) {
 		var dbAssessment models.Assessment
 		err := tx.WithContext(ctx).
 			Preload("Creator").

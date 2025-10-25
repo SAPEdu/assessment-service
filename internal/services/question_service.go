@@ -237,7 +237,7 @@ func (s *questionService) List(ctx context.Context, filters repositories.Questio
 		filters.CreatedBy = &userID
 	}
 
-	questions, total, err := s.repo.Question().List(ctx, nil, filters)
+	questions, total, err := s.repo.Question().List(ctx, s.db, filters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list questions: %w", err)
 	}
