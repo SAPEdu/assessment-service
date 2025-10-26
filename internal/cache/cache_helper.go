@@ -349,6 +349,7 @@ type CacheManager struct {
 	Stats      *CacheHelper
 	Exists     *CacheHelper
 	Fast       *CacheHelper
+	Attempt    *CacheHelper
 }
 
 // NewCacheManager creates cache manager with all cache helpers
@@ -361,6 +362,7 @@ func NewCacheManager(client *redis.Client) *CacheManager {
 			Stats:      NewCacheHelper(nil, ""),
 			Exists:     NewCacheHelper(nil, ""),
 			Fast:       NewCacheHelper(nil, ""),
+			Attempt:    NewCacheHelper(nil, ""),
 		}
 	}
 
@@ -371,6 +373,7 @@ func NewCacheManager(client *redis.Client) *CacheManager {
 		Stats:      NewCacheHelper(client, StatsCacheConfig.Prefix),
 		Exists:     NewCacheHelper(client, ExistsCacheConfig.Prefix),
 		Fast:       NewCacheHelper(client, FastCacheConfig.Prefix),
+		Attempt:    NewCacheHelper(client, "attempt:"),
 	}
 }
 

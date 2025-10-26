@@ -25,7 +25,7 @@ func TestNewAttemptService(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			NewAttemptService(tt.args.repo, tt.args.db, tt.args.logger, tt.args.validator)
+			NewAttemptService(tt.args.repo, tt.args.db, tt.args.logger, tt.args.validator, nil)
 		})
 	}
 }

@@ -59,6 +59,8 @@ func (s *gradingService) GenerateFeedback(ctx context.Context, questionType mode
 		feedback = s.generateMatchingFeedback(questionContent, studentAnswer, isCorrect)
 	case models.Ordering:
 		feedback = s.generateOrderingFeedback(questionContent, studentAnswer, isCorrect)
+	case models.Essay:
+		feedback = "Essay questions require manual grading."
 	default:
 		if isCorrect {
 			feedback = "Correct answer!"

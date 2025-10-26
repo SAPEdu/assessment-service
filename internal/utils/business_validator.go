@@ -154,18 +154,6 @@ func (bv *BusinessValidator) validateAssessmentBusinessRules(req *AssessmentCrea
 		})
 	}
 
-	// Additional business logic validations
-	if req.MaxAttempts > 0 && req.Settings != nil && req.Settings.AllowRetake != nil && !*req.Settings.AllowRetake {
-		if req.MaxAttempts > 1 {
-			errors = append(errors, ValidationError{
-				Field:   "max_attempts",
-				Message: "cannot be greater than 1 when retakes are not allowed",
-				Value:   req.MaxAttempts,
-				Rule:    "business_logic",
-			})
-		}
-	}
-
 	return errors
 }
 
@@ -261,15 +249,7 @@ type AssessmentUpdateRequest struct {
 type AssessmentSettingsRequest struct {
 	RandomizeQuestions          *bool `json:"randomize_questions"`
 	RandomizeOptions            *bool `json:"randomize_options"`
-	QuestionsPerPage            *int  `json:"questions_per_page" validate:"omitempty,min=1,max=50"`
 	ShowProgressBar             *bool `json:"show_progress_bar"`
-	ShowResults                 *bool `json:"show_results"`
-	ShowCorrectAnswers          *bool `json:"show_correct_answers"`
-	ShowScoreBreakdown          *bool `json:"show_score_breakdown"`
-	AllowRetake                 *bool `json:"allow_retake"`
-	RetakeDelay                 *int  `json:"retake_delay" validate:"omitempty,min=0,max=1440"`
-	TimeLimitEnforced           *bool `json:"time_limit_enforced"`
-	AutoSubmitOnTimeout         *bool `json:"auto_submit_on_timeout"`
 	RequireWebcam               *bool `json:"require_webcam"`
 	PreventTabSwitching         *bool `json:"prevent_tab_switching"`
 	PreventRightClick           *bool `json:"prevent_right_click"`

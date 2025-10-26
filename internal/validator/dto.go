@@ -35,15 +35,7 @@ type AssessmentUpdateRequest struct {
 type AssessmentSettingsRequest struct {
 	RandomizeQuestions          *bool `json:"randomize_questions"`
 	RandomizeOptions            *bool `json:"randomize_options"`
-	QuestionsPerPage            *int  `json:"questions_per_page" validate:"omitempty,min=1,max=50"`
 	ShowProgressBar             *bool `json:"show_progress_bar"`
-	ShowResults                 *bool `json:"show_results"`
-	ShowCorrectAnswers          *bool `json:"show_correct_answers"`
-	ShowScoreBreakdown          *bool `json:"show_score_breakdown"`
-	AllowRetake                 *bool `json:"allow_retake"`
-	RetakeDelay                 *int  `json:"retake_delay" validate:"omitempty,min=0,max=1440"`
-	TimeLimitEnforced           *bool `json:"time_limit_enforced"`
-	AutoSubmitOnTimeout         *bool `json:"auto_submit_on_timeout"`
 	RequireWebcam               *bool `json:"require_webcam"`
 	PreventTabSwitching         *bool `json:"prevent_tab_switching"`
 	PreventRightClick           *bool `json:"prevent_right_click"`

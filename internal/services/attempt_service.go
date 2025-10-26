@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/SAP-F-2025/assessment-service/internal/cache"
 	"github.com/SAP-F-2025/assessment-service/internal/models"
 	"github.com/SAP-F-2025/assessment-service/internal/repositories"
 	"github.com/SAP-F-2025/assessment-service/internal/validator"
@@ -14,18 +15,20 @@ import (
 )
 
 type attemptService struct {
-	repo      repositories.Repository
-	db        *gorm.DB
-	logger    *slog.Logger
-	validator *validator.Validator
+	repo         repositories.Repository
+	db           *gorm.DB
+	logger       *slog.Logger
+	validator    *validator.Validator
+	cacheManager *cache.CacheManager
 }
 
-func NewAttemptService(repo repositories.Repository, db *gorm.DB, logger *slog.Logger, validator *validator.Validator) AttemptService {
+func NewAttemptService(repo repositories.Repository, db *gorm.DB, logger *slog.Logger, validator *validator.Validator, cacheManager *cache.CacheManager) AttemptService {
 	return &attemptService{
-		repo:      repo,
-		db:        db,
-		logger:    logger,
-		validator: validator,
+		repo:         repo,
+		db:           db,
+		logger:       logger,
+		validator:    validator,
+		cacheManager: cacheManager,
 	}
 }
 
@@ -101,6 +104,26 @@ func (s *attemptService) Start(ctx context.Context, req *StartAttemptRequest, st
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to start attempt transaction: %w", err)
+	}
+
+	// Generate and cache randomization seeds if enabled
+	// TTL = assessment duration + 15 min buffer
+	ttlMinutes := assessment.Duration + 15
+
+	if assessment.Settings.RandomizeQuestions {
+		if _, err := s.generateAndCacheSeed(ctx, attempt.ID, "question", ttlMinutes); err != nil {
+			s.logger.Warn("Failed to generate question seed, shuffle will not persist",
+				"attempt_id", attempt.ID,
+				"error", err)
+		}
+	}
+
+	if assessment.Settings.RandomizeOptions {
+		if _, err := s.generateAndCacheSeed(ctx, attempt.ID, "option", ttlMinutes); err != nil {
+			s.logger.Warn("Failed to generate option seed, shuffle will not persist",
+				"attempt_id", attempt.ID,
+				"error", err)
+		}
 	}
 
 	s.logger.Info("Assessment attempt started successfully",
@@ -219,6 +242,9 @@ func (s *attemptService) Submit(ctx context.Context, req *SubmitAttemptRequest, 
 	s.logger.Info("Assessment attempt submitted successfully",
 		"attempt_id", req.AttemptID,
 		"student_id", studentID)
+
+	// Clean up randomization seeds from cache
+	s.deleteSeedsFromCache(ctx, req.AttemptID)
 
 	// Auto-grade if possible
 	gradingService := NewGradingService(s.db, s.repo, s.logger, s.validator)

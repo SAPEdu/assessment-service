@@ -14,18 +14,20 @@ import (
 )
 
 type gradingService struct {
-	db        *gorm.DB
-	repo      repositories.Repository
-	logger    *slog.Logger
-	validator *validator.Validator
+	db             *gorm.DB
+	repo           repositories.Repository
+	logger         *slog.Logger
+	validator      *validator.Validator
+	attemptService AttemptService
 }
 
 func NewGradingService(db *gorm.DB, repo repositories.Repository, logger *slog.Logger, validator *validator.Validator) GradingService {
 	return &gradingService{
-		db:        db,
-		repo:      repo,
-		logger:    logger,
-		validator: validator,
+		db:             db,
+		repo:           repo,
+		logger:         logger,
+		validator:      validator,
+		attemptService: NewAttemptService(repo, db, logger, validator, nil),
 	}
 }
 
@@ -92,14 +94,31 @@ func (s *gradingService) GradeAnswer(ctx context.Context, answerID uint, score f
 	return result, nil
 }
 
+// GradeAttempt
+// DEPRECATED: This method is deprecated. Use AutoGradeAttempt instead to grade all answers in a batch
 func (s *gradingService) GradeAttempt(ctx context.Context, attemptID uint, graderID string) (*AttemptGradingResult, error) {
 	s.logger.Info("Manually grading attempt",
 		"attempt_id", attemptID,
 		"grader_id", graderID)
 
+	// Begin transaction to ensure atomicity
+	tx := s.db.Begin()
+	if tx.Error != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", tx.Error)
+	}
+
+	// Ensure rollback on error
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			s.logger.Error("Panic during grading, rolled back", "attempt_id", attemptID, "panic", r)
+		}
+	}()
+
 	// Get attempt with details
-	attempt, err := s.repo.Attempt().GetByIDWithDetails(ctx, s.db, attemptID)
+	attempt, err := s.repo.Attempt().GetByIDWithDetails(ctx, tx, attemptID)
 	if err != nil {
+		tx.Rollback()
 		if repositories.IsNotFoundError(err) {
 			return nil, fmt.Errorf("attempt not found")
 		}
@@ -107,24 +126,28 @@ func (s *gradingService) GradeAttempt(ctx context.Context, attemptID uint, grade
 	}
 
 	// Check grading permissions
-	assessmentService := NewAssessmentService(s.repo, s.db, s.logger, s.validator)
+	assessmentService := NewAssessmentService(s.repo, tx, s.logger, s.validator)
 	canAccess, err := assessmentService.CanAccess(ctx, attempt.AssessmentID, graderID)
 	if err != nil {
+		tx.Rollback()
 		return nil, err
 	}
 	if !canAccess {
+		tx.Rollback()
 		return nil, NewPermissionError(graderID, attempt.AssessmentID, "assessment", "grade", "not owner or insufficient permissions")
 	}
 
 	// Get all answers for attempt
-	answers, err := s.repo.Answer().GetByAttempt(ctx, s.db, attemptID)
+	answers, err := s.repo.Answer().GetByAttempt(ctx, tx, attemptID)
 	if err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("failed to get attempt answers: %w", err)
 	}
 
 	// Use batch auto-grading for all ungraded answers
-	questionResults, err := s.autoGradeAnswers(ctx, answers, attempt.AssessmentID)
+	questionResults, err := s.autoGradeAnswers(ctx, tx, answers, attempt.AssessmentID)
 	if err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("failed to auto-grade answers: %w", err)
 	}
 
@@ -142,8 +165,9 @@ func (s *gradingService) GradeAttempt(ctx context.Context, attemptID uint, grade
 	}
 
 	// Get assessment to check passing score
-	assessment, err := s.repo.Assessment().GetByID(ctx, s.db, attempt.AssessmentID)
+	assessment, err := s.repo.Assessment().GetByID(ctx, tx, attempt.AssessmentID)
 	if err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("failed to get assessment: %w", err)
 	}
 
@@ -155,8 +179,14 @@ func (s *gradingService) GradeAttempt(ctx context.Context, attemptID uint, grade
 	attempt.Percentage = percentage
 	attempt.Passed = isPassing
 
-	if err := s.repo.Attempt().Update(ctx, s.db, attempt); err != nil {
+	if err := s.repo.Attempt().Update(ctx, tx, attempt); err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("failed to update attempt grade: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	result := &AttemptGradingResult{
@@ -180,6 +210,7 @@ func (s *gradingService) GradeAttempt(ctx context.Context, attemptID uint, grade
 	return result, nil
 }
 
+// DEPRECATED: This method is deprecated. Use GradeAnswer in a loop instead to grade multiple answers individually.
 func (s *gradingService) GradeMultipleAnswers(ctx context.Context, grades []repositories.AnswerGrade, graderID string) ([]GradingResult, error) {
 	s.logger.Info("Grading multiple answers",
 		"count", len(grades),
@@ -289,7 +320,7 @@ func (s *gradingService) AutoGradeAnswer(ctx context.Context, answerID uint) (*G
 
 // autoGradeAnswers performs batch auto-grading for multiple answers
 // This method handles transaction management internally for consistency
-func (s *gradingService) autoGradeAnswers(ctx context.Context, answers []*models.StudentAnswer, assessmentId uint) ([]GradingResult, error) {
+func (s *gradingService) autoGradeAnswers(ctx context.Context, tx *gorm.DB, answers []*models.StudentAnswer, assessmentId uint) ([]GradingResult, error) {
 	if len(answers) == 0 {
 		return []GradingResult{}, nil
 	}
@@ -298,7 +329,7 @@ func (s *gradingService) autoGradeAnswers(ctx context.Context, answers []*models
 	var answersToUpdate []*models.StudentAnswer
 
 	// Get assessment questions for points mapping
-	assessmentQuestions, err := s.repo.AssessmentQuestion().GetByAssessment(ctx, s.db, assessmentId)
+	assessmentQuestions, err := s.repo.AssessmentQuestion().GetByAssessment(ctx, tx, assessmentId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get assessment questions: %w", err)
 	}
@@ -389,6 +420,9 @@ func (s *gradingService) autoGradeAnswers(ctx context.Context, answers []*models
 		answer.UpdatedAt = time.Now()
 		answer.MaxScore = *assessmentQuestion.Points
 		// Note: GradedBy is nil for auto-graded answers
+		if !s.isAutoGradeable(answer.Question.Type) {
+			answer.IsGraded = false
+		}
 
 		answersToUpdate = append(answersToUpdate, answer)
 
@@ -405,9 +439,9 @@ func (s *gradingService) autoGradeAnswers(ctx context.Context, answers []*models
 		})
 	}
 
-	// Batch update all answers in a transaction
+	// Batch update all answers within the provided transaction
 	if len(answersToUpdate) > 0 {
-		if err := s.repo.Answer().UpdateBatch(ctx, s.db, answersToUpdate); err != nil {
+		if err := s.repo.Answer().UpdateBatch(ctx, tx, answersToUpdate); err != nil {
 			return nil, fmt.Errorf("failed to batch update graded answers: %w", err)
 		}
 
@@ -422,9 +456,24 @@ func (s *gradingService) autoGradeAnswers(ctx context.Context, answers []*models
 func (s *gradingService) AutoGradeAttempt(ctx context.Context, attemptID uint) (*AttemptGradingResult, error) {
 	s.logger.Info("Auto-grading attempt", "attempt_id", attemptID)
 
+	// Begin transaction to ensure atomicity
+	tx := s.db.Begin()
+	if tx.Error != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", tx.Error)
+	}
+
+	// Ensure rollback on error
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			s.logger.Error("Panic during auto-grading, rolled back", "attempt_id", attemptID, "panic", r)
+		}
+	}()
+
 	// Get attempt with details
-	attempt, err := s.repo.Attempt().GetByIDWithDetails(ctx, s.db, attemptID)
+	attempt, err := s.repo.Attempt().GetByIDWithDetails(ctx, tx, attemptID)
 	if err != nil {
+		tx.Rollback()
 		if repositories.IsNotFoundError(err) {
 			return nil, fmt.Errorf("attempt not found")
 		}
@@ -432,26 +481,27 @@ func (s *gradingService) AutoGradeAttempt(ctx context.Context, attemptID uint) (
 	}
 
 	// Get all answers for attempt
-	answers, err := s.repo.Answer().GetByAttempt(ctx, s.db, attemptID)
+	answers, err := s.repo.Answer().GetByAttempt(ctx, tx, attemptID)
 	if err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("failed to get attempt answers: %w", err)
 	}
 
-	// Auto-grade all gradeable answers
+	// Auto-grade all gradeable answers (within transaction)
 	var questionResults []GradingResult
 	totalScore := 0.0
 	maxTotalScore := 0.0
 	hasManualGrading := false
 
-	questionResults, err = s.autoGradeAnswers(ctx, answers, attempt.AssessmentID)
+	questionResults, err = s.autoGradeAnswers(ctx, tx, answers, attempt.AssessmentID)
 	if err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("failed to auto-grade answers: %w", err)
 	}
 
 	for _, answer := range answers {
 		if !s.isAutoGradeable(answer.Question.Type) {
 			hasManualGrading = true
-			break
 		}
 	}
 
@@ -467,24 +517,33 @@ func (s *gradingService) AutoGradeAttempt(ctx context.Context, attemptID uint) (
 	}
 
 	// Get assessment to check passing score
-	assessment, err := s.repo.Assessment().GetByID(ctx, s.db, attempt.AssessmentID)
+	assessment, err := s.repo.Assessment().GetByID(ctx, tx, attempt.AssessmentID)
 	if err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("failed to get assessment: %w", err)
 	}
 
 	isPassing := percentage >= float64(assessment.PassingScore)
 	grade := s.calculateLetterGrade(percentage)
 
-	// Update attempt only if fully graded
-	if !hasManualGrading {
-		attempt.Score = totalScore
-		attempt.Percentage = percentage
-		attempt.Passed = isPassing
-		// GradedBy is nil for auto-graded attempts
+	attempt.Score = totalScore
+	attempt.Percentage = percentage
+	attempt.Passed = isPassing
+	attempt.IsGraded = true
+	attempt.MaxScore = int(maxTotalScore)
 
-		if err := s.repo.Attempt().Update(ctx, s.db, attempt); err != nil {
-			return nil, fmt.Errorf("failed to update attempt grade: %w", err)
-		}
+	if hasManualGrading {
+		attempt.IsGraded = false
+	}
+
+	if err := s.repo.Attempt().Update(ctx, tx, attempt); err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to update attempt grade: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	result := &AttemptGradingResult{

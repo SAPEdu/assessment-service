@@ -74,7 +74,7 @@ func main() {
 	validator := validator.New()
 
 	// Initialize services
-	serviceManager := services.NewDefaultServiceManager(db, repoManager.GetRepository(), slogLogger, validator)
+	serviceManager := services.NewDefaultServiceManager(db, repoManager.GetRepository(), slogLogger, validator, redisClient)
 	if err := serviceManager.Initialize(context.Background()); err != nil {
 		log.Fatalf("Failed to initialize services: %v", err)
 	}

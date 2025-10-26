@@ -202,15 +202,7 @@ func (s *assessmentService) buildAssessmentSettings(assessmentID uint, req *Asse
 		// Set defaults
 		RandomizeQuestions:          false,
 		RandomizeOptions:            false,
-		QuestionsPerPage:            1,
 		ShowProgressBar:             true,
-		ShowResults:                 true,
-		ShowCorrectAnswers:          true,
-		ShowScoreBreakdown:          true,
-		AllowRetake:                 false,
-		RetakeDelay:                 0,
-		TimeLimitEnforced:           true,
-		AutoSubmitOnTimeout:         true,
 		RequireWebcam:               false,
 		PreventTabSwitching:         false,
 		PreventRightClick:           false,
@@ -264,32 +256,8 @@ func (s *assessmentService) applySettingsUpdates(settings *models.AssessmentSett
 	if req.RandomizeOptions != nil {
 		settings.RandomizeOptions = *req.RandomizeOptions
 	}
-	if req.QuestionsPerPage != nil {
-		settings.QuestionsPerPage = *req.QuestionsPerPage
-	}
 	if req.ShowProgressBar != nil {
 		settings.ShowProgressBar = *req.ShowProgressBar
-	}
-	if req.ShowResults != nil {
-		settings.ShowResults = *req.ShowResults
-	}
-	if req.ShowCorrectAnswers != nil {
-		settings.ShowCorrectAnswers = *req.ShowCorrectAnswers
-	}
-	if req.ShowScoreBreakdown != nil {
-		settings.ShowScoreBreakdown = *req.ShowScoreBreakdown
-	}
-	if req.AllowRetake != nil {
-		settings.AllowRetake = *req.AllowRetake
-	}
-	if req.RetakeDelay != nil {
-		settings.RetakeDelay = *req.RetakeDelay
-	}
-	if req.TimeLimitEnforced != nil {
-		settings.TimeLimitEnforced = *req.TimeLimitEnforced
-	}
-	if req.AutoSubmitOnTimeout != nil {
-		settings.AutoSubmitOnTimeout = *req.AutoSubmitOnTimeout
 	}
 	if req.RequireWebcam != nil {
 		settings.RequireWebcam = *req.RequireWebcam
