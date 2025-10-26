@@ -48,6 +48,7 @@ type QuestionRepository interface {
 	ExistsByText(ctx context.Context, tx *gorm.DB, text string, creatorID string, excludeID *uint) (bool, error)
 	IsUsedInAssessments(ctx context.Context, tx *gorm.DB, id uint) (bool, error)
 	GetUsageCount(ctx context.Context, tx *gorm.DB, id uint) (int, error)
+	IsExistInAttempt(ctx context.Context, tx *gorm.DB, id uint) (bool, error)
 
 	// Content management
 	UpdateContent(ctx context.Context, tx *gorm.DB, id uint, content interface{}) error
