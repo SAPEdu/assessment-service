@@ -7,8 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SAP-F-2025/assessment-service/internal/cache"
 	"github.com/SAP-F-2025/assessment-service/internal/repositories"
 	"github.com/SAP-F-2025/assessment-service/internal/validator"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -58,11 +60,12 @@ type RateLimit struct {
 // serviceManager implements ServiceManager interface
 type serviceManager struct {
 	// Dependencies
-	db        *gorm.DB
-	repo      repositories.Repository
-	logger    *slog.Logger
-	validator *validator.Validator
-	config    ServiceManagerConfig
+	db           *gorm.DB
+	repo         repositories.Repository
+	logger       *slog.Logger
+	validator    *validator.Validator
+	cacheManager *cache.CacheManager
+	config       ServiceManagerConfig
 
 	// Service instances
 	assessmentService   AssessmentService
@@ -86,18 +89,22 @@ type serviceManager struct {
 }
 
 // NewServiceManager creates a new service manager with all dependencies
-func NewServiceManager(db *gorm.DB, repo repositories.Repository, logger *slog.Logger, validator *validator.Validator, config ServiceManagerConfig) ServiceManager {
+func NewServiceManager(db *gorm.DB, repo repositories.Repository, logger *slog.Logger, validator *validator.Validator, cacheManager *cache.CacheManager, config ServiceManagerConfig) ServiceManager {
 	return &serviceManager{
-		db:        db,
-		repo:      repo,
-		logger:    logger,
-		validator: validator,
-		config:    config,
+		db:           db,
+		repo:         repo,
+		logger:       logger,
+		validator:    validator,
+		cacheManager: cacheManager,
+		config:       config,
 	}
 }
 
 // NewDefaultServiceManager creates a service manager with default configuration
-func NewDefaultServiceManager(db *gorm.DB, repo repositories.Repository, logger *slog.Logger, validator *validator.Validator) ServiceManager {
+func NewDefaultServiceManager(db *gorm.DB, repo repositories.Repository, logger *slog.Logger, validator *validator.Validator, redisClient *redis.Client) ServiceManager {
+	// Create cache manager from Redis client
+	cacheManager := cache.NewCacheManager(redisClient)
+
 	config := ServiceManagerConfig{
 		EnableDebugLogging: false,
 		EnableMetrics:      true,
@@ -150,7 +157,7 @@ func NewDefaultServiceManager(db *gorm.DB, repo repositories.Repository, logger 
 		RateLimitingRules: make(map[string]RateLimit),
 	}
 
-	return NewServiceManager(db, repo, logger, validator, config)
+	return NewServiceManager(db, repo, logger, validator, cacheManager, config)
 }
 
 // Initialize sets up all services and their dependencies
@@ -203,7 +210,7 @@ func (sm *serviceManager) initializeServices(ctx context.Context) error {
 
 	// Initialize AttemptService
 	if sm.config.Attempt.Enabled {
-		sm.attemptService = NewAttemptService(sm.repo, sm.db, sm.logger, sm.validator)
+		sm.attemptService = NewAttemptService(sm.repo, sm.db, sm.logger, sm.validator, sm.cacheManager)
 		sm.logger.Info("Attempt service initialized")
 	}
 
@@ -590,7 +597,10 @@ func (sc *ServiceConfig) validate(serviceName string) error {
 // ===== FACTORY FUNCTIONS =====
 
 // CreateProductionServiceManager creates a service manager configured for production
-func CreateProductionServiceManager(db *gorm.DB, repo repositories.Repository, logger *slog.Logger, validator *validator.Validator) ServiceManager {
+func CreateProductionServiceManager(db *gorm.DB, repo repositories.Repository, logger *slog.Logger, validator *validator.Validator, redisClient *redis.Client) ServiceManager {
+	// Create cache manager from Redis client
+	cacheManager := cache.NewCacheManager(redisClient)
+
 	config := ServiceManagerConfig{
 		EnableDebugLogging: false,
 		EnableMetrics:      true,
@@ -639,11 +649,13 @@ func CreateProductionServiceManager(db *gorm.DB, repo repositories.Repository, l
 		},
 	}
 
-	return NewServiceManager(db, repo, logger, validator, config)
+	return NewServiceManager(db, repo, logger, validator, cacheManager, config)
 }
 
 // CreateDevelopmentServiceManager creates a service manager configured for development
-func CreateDevelopmentServiceManager(db *gorm.DB, repo repositories.Repository, logger *slog.Logger, validator *validator.Validator) ServiceManager {
+func CreateDevelopmentServiceManager(db *gorm.DB, repo repositories.Repository, logger *slog.Logger, validator *validator.Validator, redisClient *redis.Client) ServiceManager {
+	// Create cache manager from Redis client
+	cacheManager := cache.NewCacheManager(redisClient)
 	config := ServiceManagerConfig{
 		EnableDebugLogging: true,
 		EnableMetrics:      false,
@@ -688,5 +700,5 @@ func CreateDevelopmentServiceManager(db *gorm.DB, repo repositories.Repository, 
 		RateLimitingRules: make(map[string]RateLimit),
 	}
 
-	return NewServiceManager(db, repo, logger, validator, config)
+	return NewServiceManager(db, repo, logger, validator, cacheManager, config)
 }

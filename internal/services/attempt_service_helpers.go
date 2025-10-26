@@ -2,8 +2,11 @@ package services
 
 import (
 	"context"
+	cryptoRand "crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	mathRand "math/rand"
 	"time"
 
 	"github.com/SAP-F-2025/assessment-service/internal/models"
@@ -287,12 +290,55 @@ func (s *attemptService) buildAttemptResponse(ctx context.Context, attempt *mode
 
 	response.CanResume = response.CanSubmit
 
+	response.IsPendingGrade = !attempt.IsGraded && attempt.Status == models.AttemptCompleted
 	// Include questions if requested and user is the student
 	if includeQuestions && attempt.StudentID == userID {
 		questions, err := s.getAttemptQuestions(ctx, attempt.AssessmentID)
 		if err != nil {
 			s.logger.Error("Failed to get attempt questions", "attempt_id", attempt.ID, "error", err)
 		} else {
+			// Get user role to determine if we should shuffle
+			userRole, err := s.getUserRole(ctx, userID)
+			if err != nil {
+				s.logger.Error("Failed to get user role", "user_id", userID, "error", err)
+				userRole = models.RoleStudent // Default to student for safety
+			}
+
+			// Get assessment to check randomization settings
+			assessment, err := s.repo.Assessment().GetByID(ctx, s.db, attempt.AssessmentID)
+			if err != nil {
+				s.logger.Error("Failed to get assessment for shuffle", "assessment_id", attempt.AssessmentID, "error", err)
+			}
+
+			// Apply randomization ONLY for students during in_progress attempts
+			shouldShuffle := userRole == models.RoleStudent && attempt.Status == models.AttemptInProgress
+
+			if shouldShuffle && assessment != nil && assessment.Settings.RandomizeQuestions {
+				// Try to get cached question seed
+				if questionSeed, found := s.getSeedFromCache(ctx, attempt.ID, "question"); found {
+					questions = s.shuffleQuestionsWithSeed(questions, questionSeed)
+					s.logger.Debug("Questions shuffled with cached seed",
+						"attempt_id", attempt.ID,
+						"seed", questionSeed)
+				}
+			}
+
+			// Apply option shuffle if enabled
+			if shouldShuffle && assessment != nil && assessment.Settings.RandomizeOptions {
+				// Try to get cached option seed
+				if optionSeed, found := s.getSeedFromCache(ctx, attempt.ID, "option"); found {
+					// Apply option shuffle to each question
+					for i := range questions {
+						if questions[i].Question != nil {
+							questions[i].Question = s.applyOptionShuffle(questions[i].Question, optionSeed)
+						}
+					}
+					s.logger.Debug("Options shuffled with cached seed",
+						"attempt_id", attempt.ID,
+						"seed", optionSeed)
+				}
+			}
+
 			// Check if we should show correct answers
 			showCorrectAnswers, err := s.shouldShowCorrectAnswers(ctx, attempt)
 			if err != nil {
@@ -424,22 +470,7 @@ func (s *attemptService) shouldShowCorrectAnswers(ctx context.Context, attempt *
 		return false, nil
 	}
 
-	// For completed/timeout attempts, check settings
-	if attempt.Status == models.AttemptCompleted || attempt.Status == models.AttemptTimeOut {
-		settings, err := s.repo.Assessment().GetSettings(ctx, s.db, attempt.AssessmentID)
-		if err != nil {
-			// If settings not found, default to not showing
-			s.logger.Warn("Failed to get assessment settings, defaulting to hide answers",
-				"assessment_id", attempt.AssessmentID,
-				"error", err)
-			return false, nil
-		}
-
-		return settings.ShowCorrectAnswers, nil
-	}
-
-	// For other statuses (abandoned), don't show
-	return false, nil
+	return true, nil
 }
 
 // removeCorrectAnswersFromQuestions removes correct answers from all questions
@@ -636,4 +667,185 @@ func (s *attemptService) sanitizeShortAnswerContent(content datatypes.JSON) data
 	}
 
 	return sanitized
+}
+
+// ===== RANDOMIZATION HELPERS (REDIS-BASED SEED STORAGE) =====
+
+// generateAndCacheSeed generates a cryptographically secure random seed and caches it in Redis
+// Returns the seed (falls back to timestamp-based seed if Redis fails)
+func (s *attemptService) generateAndCacheSeed(ctx context.Context, attemptID uint, seedType string, ttlMinutes int) (int64, error) {
+	// Generate cryptographically secure random seed
+	var seedBytes [8]byte
+	if _, err := cryptoRand.Read(seedBytes[:]); err != nil {
+		s.logger.Warn("Failed to generate crypto random seed, using timestamp fallback",
+			"attempt_id", attemptID,
+			"seed_type", seedType,
+			"error", err)
+		return time.Now().UnixNano(), nil
+	}
+
+	seed := int64(binary.BigEndian.Uint64(seedBytes[:]))
+
+	// Cache in Redis with TTL
+	cacheKey := fmt.Sprintf("attempt:%d:%s_seed", attemptID, seedType)
+	ttl := time.Duration(ttlMinutes) * time.Minute
+
+	if err := s.cacheManager.Fast.SetString(ctx, cacheKey, fmt.Sprintf("%d", seed), ttl); err != nil {
+		s.logger.Warn("Failed to cache seed in Redis, seed will not persist across requests",
+			"attempt_id", attemptID,
+			"seed_type", seedType,
+			"error", err)
+	}
+
+	s.logger.Debug("Generated and cached seed",
+		"attempt_id", attemptID,
+		"seed_type", seedType,
+		"ttl_minutes", ttlMinutes)
+
+	return seed, nil
+}
+
+// getSeedFromCache retrieves a cached seed from Redis
+// Returns the seed and a boolean indicating if found
+func (s *attemptService) getSeedFromCache(ctx context.Context, attemptID uint, seedType string) (int64, bool) {
+	cacheKey := fmt.Sprintf("attempt:%d:%s_seed", attemptID, seedType)
+
+	seedStr, err := s.cacheManager.Fast.GetString(ctx, cacheKey)
+	if err != nil {
+		s.logger.Debug("Seed not found in cache",
+			"attempt_id", attemptID,
+			"seed_type", seedType)
+		return 0, false
+	}
+
+	var seed int64
+	if _, err := fmt.Sscanf(seedStr, "%d", &seed); err != nil {
+		s.logger.Error("Failed to parse cached seed",
+			"attempt_id", attemptID,
+			"seed_type", seedType,
+			"error", err)
+		return 0, false
+	}
+
+	return seed, true
+}
+
+// deleteSeedsFromCache removes cached seeds from Redis when attempt is completed
+func (s *attemptService) deleteSeedsFromCache(ctx context.Context, attemptID uint) {
+	questionKey := fmt.Sprintf("attempt:%d:question_seed", attemptID)
+	optionKey := fmt.Sprintf("attempt:%d:option_seed", attemptID)
+
+	s.cacheManager.Fast.Delete(ctx, questionKey)
+	s.cacheManager.Fast.Delete(ctx, optionKey)
+
+	s.logger.Debug("Deleted cached seeds", "attempt_id", attemptID)
+}
+
+// shuffleQuestionsWithSeed shuffles questions deterministically using the provided seed
+func (s *attemptService) shuffleQuestionsWithSeed(questions []QuestionForAttempt, seed int64) []QuestionForAttempt {
+	if len(questions) <= 1 {
+		return questions
+	}
+
+	// Create a copy to avoid modifying the original slice
+	shuffled := make([]QuestionForAttempt, len(questions))
+	copy(shuffled, questions)
+
+	// Use seed for deterministic shuffle
+	rng := mathRand.New(mathRand.NewSource(seed))
+	rng.Shuffle(len(shuffled), func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	})
+
+	// Update IsFirst and IsLast flags
+	for i := range shuffled {
+		shuffled[i].IsFirst = (i == 0)
+		shuffled[i].IsLast = (i == len(shuffled)-1)
+	}
+
+	return shuffled
+}
+
+// shuffleMCOptions shuffles multiple choice options deterministically
+func (s *attemptService) shuffleMCOptions(content datatypes.JSON, seed int64) datatypes.JSON {
+	var mc models.MultipleChoiceContent
+	if err := json.Unmarshal(content, &mc); err != nil {
+		return content
+	}
+
+	if len(mc.Options) <= 1 {
+		return content
+	}
+
+	rng := mathRand.New(mathRand.NewSource(seed))
+	rng.Shuffle(len(mc.Options), func(i, j int) {
+		mc.Options[i], mc.Options[j] = mc.Options[j], mc.Options[i]
+	})
+
+	shuffled, _ := json.Marshal(mc)
+	return shuffled
+}
+
+// shuffleMatchingItems shuffles matching question items deterministically
+func (s *attemptService) shuffleMatchingItems(content datatypes.JSON, seed int64) datatypes.JSON {
+	var matching models.MatchingContent
+	if err := json.Unmarshal(content, &matching); err != nil {
+		return content
+	}
+
+	if len(matching.LeftItems) <= 1 || len(matching.RightItems) <= 1 {
+		return content
+	}
+
+	rng := mathRand.New(mathRand.NewSource(seed))
+	rng.Shuffle(len(matching.LeftItems), func(i, j int) {
+		matching.LeftItems[i], matching.LeftItems[j] = matching.LeftItems[j], matching.LeftItems[i]
+	})
+	rng.Shuffle(len(matching.RightItems), func(i, j int) {
+		matching.RightItems[i], matching.RightItems[j] = matching.RightItems[j], matching.RightItems[i]
+	})
+
+	shuffled, _ := json.Marshal(matching)
+	return shuffled
+}
+
+// applyOptionShuffle applies option shuffling to a question based on its type
+func (s *attemptService) applyOptionShuffle(question *models.Question, baseSeed int64) *models.Question {
+	if question == nil || question.Content == nil {
+		return question
+	}
+
+	// Create question-specific seed by combining base seed with question ID
+	questionSeed := baseSeed + int64(question.ID)
+
+	// Create a copy to avoid modifying the original
+	shuffled := *question
+
+	switch question.Type {
+	case models.MultipleChoice:
+		shuffled.Content = s.shuffleMCOptions(question.Content, questionSeed)
+	case models.Matching:
+		shuffled.Content = s.shuffleMatchingItems(question.Content, questionSeed)
+	default:
+		// Other question types don't have options to shuffle
+		return question
+	}
+
+	return &shuffled
+}
+
+// HasPendingManualGrading checks if there are any answers pending manual grading for the attempt
+func (s *attemptService) HasPendingManualGrading(ctx context.Context, tx *gorm.DB, attemptID uint) (bool, error) {
+	answers, err := s.repo.Answer().GetByAttempt(ctx, tx, attemptID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get answers for attempt: %w", err)
+	}
+
+	for _, ans := range answers {
+		if !ans.IsGraded {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

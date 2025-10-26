@@ -56,21 +56,7 @@ type AssessmentSettings struct {
 	// Question Display Settings
 	RandomizeQuestions bool `json:"randomize_questions" gorm:"not null;default:false;comment:Randomize question order"`
 	RandomizeOptions   bool `json:"randomize_options" gorm:"not null;default:false;comment:Randomize answer options"`
-	QuestionsPerPage   int  `json:"questions_per_page" gorm:"not null;default:1;check:questions_per_page >= 1 AND questions_per_page <= 20;comment:Number of questions per page"`
 	ShowProgressBar    bool `json:"show_progress_bar" gorm:"not null;default:true;comment:Show progress indicator"`
-
-	// Result Settings
-	ShowResults        bool `json:"show_results" gorm:"not null;default:true;comment:Show results after completion"`
-	ShowCorrectAnswers bool `json:"show_correct_answers" gorm:"not null;default:true;comment:Show correct answers in results"`
-	ShowScoreBreakdown bool `json:"show_score_breakdown" gorm:"not null;default:true;comment:Show detailed score breakdown"`
-
-	// Attempt Settings
-	AllowRetake bool `json:"allow_retake" gorm:"not null;default:false;comment:Allow multiple attempts"`
-	RetakeDelay int  `json:"retake_delay" gorm:"not null;default:0;check:retake_delay >= 0 AND retake_delay <= 1440;comment:Delay between retakes in minutes"`
-
-	// Time Settings
-	TimeLimitEnforced   bool `json:"time_limit_enforced" gorm:"not null;default:true;comment:Enforce time limits"`
-	AutoSubmitOnTimeout bool `json:"auto_submit_on_timeout" gorm:"not null;default:true;comment:Auto-submit when time expires"`
 
 	// Proctoring Settings
 	RequireWebcam               bool `json:"require_webcam" gorm:"not null;default:false;comment:Require webcam for proctoring"`

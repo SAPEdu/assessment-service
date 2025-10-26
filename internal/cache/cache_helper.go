@@ -40,13 +40,13 @@ var (
 
 	// Medium-lived cache for assessment data
 	AssessmentCacheConfig = CacheConfig{
-		TTL:    15 * time.Minute,
+		TTL:    5 * time.Minute,
 		Prefix: "assessment:",
 	}
 
 	// Long-lived cache for question data (less frequently changed)
 	QuestionCacheConfig = CacheConfig{
-		TTL:    30 * time.Minute,
+		TTL:    5 * time.Minute,
 		Prefix: "question:",
 	}
 
@@ -58,7 +58,7 @@ var (
 
 	// Stats cache for expensive queries
 	StatsCacheConfig = CacheConfig{
-		TTL:    10 * time.Minute,
+		TTL:    5 * time.Minute,
 		Prefix: "stats:",
 	}
 )
@@ -349,6 +349,7 @@ type CacheManager struct {
 	Stats      *CacheHelper
 	Exists     *CacheHelper
 	Fast       *CacheHelper
+	Attempt    *CacheHelper
 }
 
 // NewCacheManager creates cache manager with all cache helpers
@@ -361,6 +362,7 @@ func NewCacheManager(client *redis.Client) *CacheManager {
 			Stats:      NewCacheHelper(nil, ""),
 			Exists:     NewCacheHelper(nil, ""),
 			Fast:       NewCacheHelper(nil, ""),
+			Attempt:    NewCacheHelper(nil, ""),
 		}
 	}
 
@@ -371,6 +373,7 @@ func NewCacheManager(client *redis.Client) *CacheManager {
 		Stats:      NewCacheHelper(client, StatsCacheConfig.Prefix),
 		Exists:     NewCacheHelper(client, ExistsCacheConfig.Prefix),
 		Fast:       NewCacheHelper(client, FastCacheConfig.Prefix),
+		Attempt:    NewCacheHelper(client, "attempt:"),
 	}
 }
 

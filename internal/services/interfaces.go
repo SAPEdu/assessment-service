@@ -8,6 +8,7 @@ import (
 	"github.com/SAP-F-2025/assessment-service/internal/models"
 	"github.com/SAP-F-2025/assessment-service/internal/repositories"
 	"github.com/SAP-F-2025/assessment-service/internal/validator"
+	"gorm.io/gorm"
 )
 
 // ===== REQUEST/RESPONSE DTOs =====
@@ -70,9 +71,10 @@ type SubmitAttemptRequest struct {
 
 type AttemptResponse struct {
 	*models.AssessmentAttempt
-	CanSubmit bool                 `json:"can_submit"`
-	CanResume bool                 `json:"can_resume"`
-	Questions []QuestionForAttempt `json:"questions,omitempty"`
+	CanSubmit      bool                 `json:"can_submit"`
+	CanResume      bool                 `json:"can_resume"`
+	IsPendingGrade bool                 `json:"is_pending_grade"`
+	Questions      []QuestionForAttempt `json:"questions,omitempty"`
 }
 
 type QuestionForAttempt struct {
@@ -323,6 +325,7 @@ type AttemptService interface {
 	CanStart(ctx context.Context, assessmentID uint, studentID string) (bool, error)
 	GetAttemptCount(ctx context.Context, assessmentID uint, studentID string) (int, error)
 	IsAttemptActive(ctx context.Context, attemptID uint) (bool, error)
+	HasPendingManualGrading(ctx context.Context, tx *gorm.DB, attemptID uint) (bool, error)
 
 	// Statistics
 	GetStats(ctx context.Context, assessmentID uint, userID string) (*repositories.AttemptStats, error)

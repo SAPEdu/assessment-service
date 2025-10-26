@@ -43,6 +43,7 @@ type StudentRecentAttempt struct {
 	Passed          bool      `json:"passed"`
 	CompletedAt     time.Time `json:"completed_at"`
 	TimeSpent       int       `json:"time_spent"`
+	IsGraded        bool      `json:"is_graded"`
 }
 
 type StudentUpcomingExam struct {
@@ -94,6 +95,7 @@ type StudentAttemptItem struct {
 	ID                uint                 `json:"id"`
 	AssessmentID      uint                 `json:"assessment_id"`
 	AssessmentTitle   string               `json:"assessment_title"`
+	Assessment        models.Assessment    `json:"assessment"`
 	Status            models.AttemptStatus `json:"status"`
 	Score             float64              `json:"score"`
 	MaxScore          int                  `json:"max_score"`
@@ -103,6 +105,7 @@ type StudentAttemptItem struct {
 	TimeSpent         int                  `json:"time_spent"`
 	QuestionsAnswered int                  `json:"questions_answered"`
 	TotalQuestions    int                  `json:"total_questions"`
+	IsPendingGrading  bool                 `json:"is_pending_grade"`
 }
 
 // Student Assessment Detail Response
@@ -134,22 +137,23 @@ type StudentService interface {
 // ===== SERVICE IMPLEMENTATION =====
 
 type studentService struct {
-	repo   repositories.Repository
-	db     *gorm.DB
-	logger *slog.Logger
+	repo           repositories.Repository
+	db             *gorm.DB
+	logger         *slog.Logger
+	attemptService AttemptService
 }
 
 func NewStudentService(repo repositories.Repository, db *gorm.DB, logger *slog.Logger) StudentService {
 	return &studentService{
-		repo:   repo,
-		db:     db,
-		logger: logger,
+		repo:           repo,
+		db:             db,
+		logger:         logger,
+		attemptService: NewAttemptService(repo, db, logger, nil, nil),
 	}
 }
 
 func (s *studentService) GetStudentStats(ctx context.Context, studentID string) (*StudentStatsResponse, error) {
 	s.logger.Info("Getting student stats", "student_id", studentID)
-
 	// Get student attempt stats
 	attemptStats, err := s.repo.Attempt().GetStudentAttemptStats(ctx, s.db, studentID)
 	if err != nil {
@@ -191,7 +195,7 @@ func (s *studentService) GetStudentStats(ctx context.Context, studentID string) 
 	var recentAttempts []StudentRecentAttempt
 	err = s.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
-		Select("assessment_attempts.id, assessment_attempts.assessment_id, assessments.title as assessment_title, assessment_attempts.score, assessment_attempts.passed, assessment_attempts.completed_at, assessment_attempts.time_spent").
+		Select("assessment_attempts.id, assessment_attempts.assessment_id, assessments.title as assessment_title, assessment_attempts.score, assessment_attempts.passed, assessment_attempts.completed_at, assessment_attempts.time_spent, assessment_attempts.is_graded").
 		Joins("JOIN assessments ON assessments.id = assessment_attempts.assessment_id").
 		Where("assessment_attempts.student_id = ? AND assessment_attempts.status = ?", studentID, models.AttemptCompleted).
 		Order("assessment_attempts.completed_at DESC").
@@ -238,7 +242,7 @@ func (s *studentService) GetStudentStats(ctx context.Context, studentID string) 
 	var lowestScore float64
 	err = s.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
-		Where("student_id = ? AND status = ?", studentID, models.AttemptCompleted).
+		Where("student_id = ? AND status = ? AND is_graded = true", studentID, models.AttemptCompleted).
 		Select("COALESCE(MIN(score), 0) as lowest_score").
 		Scan(&lowestScore).Error
 	if err != nil {
@@ -437,21 +441,14 @@ func (s *studentService) GetStudentAttempts(ctx context.Context, studentID strin
 			return nil, fmt.Errorf("failed to get student attempts: %w", err)
 		}
 	}
-
 	// Build response
 	items := make([]StudentAttemptItem, 0, len(attempts))
 	for _, att := range attempts {
-		// Get assessment title
-		var assessment models.Assessment
-		if err := s.db.WithContext(ctx).First(&assessment, att.AssessmentID).Error; err != nil {
-			s.logger.Error("Failed to get assessment", "error", err, "assessment_id", att.AssessmentID)
-			continue
-		}
-
 		items = append(items, StudentAttemptItem{
 			ID:                att.ID,
 			AssessmentID:      att.AssessmentID,
-			AssessmentTitle:   assessment.Title,
+			AssessmentTitle:   att.Assessment.Title,
+			Assessment:        att.Assessment,
 			Status:            att.Status,
 			Score:             att.Score,
 			MaxScore:          att.MaxScore,
@@ -461,6 +458,7 @@ func (s *studentService) GetStudentAttempts(ctx context.Context, studentID strin
 			TimeSpent:         att.TimeSpent,
 			QuestionsAnswered: att.QuestionsAnswered,
 			TotalQuestions:    att.TotalQuestions,
+			IsPendingGrading:  !att.IsGraded,
 		})
 	}
 

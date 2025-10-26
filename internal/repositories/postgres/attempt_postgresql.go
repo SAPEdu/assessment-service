@@ -55,6 +55,7 @@ func (a *AttemptPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.DB,
 	if err := db.WithContext(ctx).
 		Preload("Student").
 		Preload("Assessment").
+		Preload("Assessment.Settings").
 		Preload("Answers").
 		Preload("Answers.Question").
 		// Preload("ProctoringEvents").
@@ -92,7 +93,10 @@ func (a *AttemptPostgreSQL) List(ctx context.Context, tx *gorm.DB, filters repos
 	// then apply pagination and sorting
 	query = a.applyPaginationAndSortAttempt(query, filters)
 
-	if err := query.Preload("Student").Preload("Assessment").Find(&attempts).Error; err != nil {
+	if err := query.Preload("Student").
+		Preload("Assessment").
+		Preload("Assessment.Settings").
+		Find(&attempts).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -117,7 +121,7 @@ func (a *AttemptPostgreSQL) GetByAssessment(ctx context.Context, tx *gorm.DB, as
 	}
 	query = a.applyPaginationAndSortAttempt(query, filters)
 
-	if err := query.Preload("Student").Preload("Assessment").Preload("ProctoringEvents").Find(&attempts).Error; err != nil {
+	if err := query.Preload("Student").Preload("Assessment").Preload("Assessment.Settings").Find(&attempts).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -422,7 +426,7 @@ func (a *AttemptPostgreSQL) GetStudentAttemptStats(ctx context.Context, tx *gorm
 	// Average Score - Use COALESCE to handle NULL when no completed attempts
 	if err := a.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
-		Where("student_id = ? AND status = ?", studentID, models.AttemptCompleted).
+		Where("student_id = ? AND status = ? AND is_graded = true", studentID, models.AttemptCompleted).
 		Select("COALESCE(AVG(score), 0)").Scan(&avgScore).Error; err != nil {
 		return nil, err
 	}
@@ -430,7 +434,7 @@ func (a *AttemptPostgreSQL) GetStudentAttemptStats(ctx context.Context, tx *gorm
 	// Best Score - Use COALESCE to handle NULL when no completed attempts
 	if err := a.db.WithContext(ctx).
 		Model(&models.AssessmentAttempt{}).
-		Where("student_id = ? AND status = ?", studentID, models.AttemptCompleted).
+		Where("student_id = ? AND status = ? AND is_graded = true", studentID, models.AttemptCompleted).
 		Select("COALESCE(MAX(score), 0)").Scan(&bestScore).Error; err != nil {
 		return nil, err
 	}

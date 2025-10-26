@@ -39,6 +39,7 @@ type AssessmentAttempt struct {
 	MaxScore   int     `json:"max_score"`
 	Percentage float64 `json:"percentage"`
 	Passed     bool    `json:"passed"`
+	IsGraded   bool    `json:"is_graded"`
 
 	// Progress tracking
 	CurrentQuestionIndex int  `json:"current_question_index"`

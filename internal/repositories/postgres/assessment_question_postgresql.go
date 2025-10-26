@@ -428,6 +428,8 @@ func (aq *AssessmentQuestionPostgreSQL) CreateBatch(ctx context.Context, tx *gor
 	if err := tx.WithContext(ctx).CreateInBatches(assessmentQuestions, 100).Error; err != nil {
 		return fmt.Errorf("failed to create assessment questions batch: %w", err)
 	}
+	// Invalidate details assessment for all affected assessments
+	aq.cacheManager.Assessment.InvalidatePattern(ctx, fmt.Sprintf("details:%d", assessmentQuestions[0].AssessmentID))
 	return nil
 }
 
@@ -444,8 +446,12 @@ func (aq *AssessmentQuestionPostgreSQL) UpdateBatch(ctx context.Context, tx *gor
 				return fmt.Errorf("failed to update assessment question ID %d: %w", assessmentQuestion.ID, err)
 			}
 		}
+		// Invalidate details assessment for all affected assessments
+		aq.cacheManager.Assessment.InvalidatePattern(ctx, fmt.Sprintf("details:%d", assessmentQuestions[0].AssessmentID))
+
 		return nil
 	})
+
 }
 
 // DeleteByAssessment removes all questions from an assessment

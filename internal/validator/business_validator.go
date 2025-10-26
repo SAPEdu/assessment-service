@@ -284,18 +284,6 @@ func (bv *BusinessValidator) validateAssessmentBusinessRules(req *AssessmentCrea
 		})
 	}
 
-	// Max attempts vs retake consistency
-	if req.MaxAttempts > 0 && req.Settings != nil && req.Settings.AllowRetake != nil && !*req.Settings.AllowRetake {
-		if req.MaxAttempts > 1 {
-			errors = append(errors, ValidationError{
-				Field:   "max_attempts",
-				Message: "cannot be greater than 1 when retakes are not allowed",
-				Value:   req.MaxAttempts,
-				Rule:    "business_logic",
-			})
-		}
-	}
-
 	return errors
 }
 
