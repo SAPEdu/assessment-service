@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/SAP-F-2025/assessment-service/internal/models"
 	"github.com/SAP-F-2025/assessment-service/internal/services"
 	"github.com/SAP-F-2025/assessment-service/internal/utils"
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,7 @@ func NewDashboardHandler(service services.DashboardService, logger utils.Logger)
 
 // GetDashboardStats returns overall dashboard statistics
 // @Summary Get dashboard statistics
-// @Description Get overview metrics, performance metrics, and trends for the dashboard
+// @Description Get overview metrics, performance metrics, and trends for the dashboard. Teachers see only their data, admins see all data.
 // @Tags dashboard
 // @Accept json
 // @Produce json
@@ -45,8 +46,11 @@ func (h *DashboardHandler) GetDashboardStats(c *gin.Context) {
 		period = 30
 	}
 
+	// Get teacher ID filter based on user role
+	teacherID := h.getTeacherIDFilter(c)
+
 	// Call service
-	stats, err := h.service.GetDashboardStats(c.Request.Context(), period)
+	stats, err := h.service.GetDashboardStats(c.Request.Context(), teacherID, period)
 	if err != nil {
 		h.handleServiceError(c, err)
 		return
@@ -57,7 +61,7 @@ func (h *DashboardHandler) GetDashboardStats(c *gin.Context) {
 
 // GetActivityTrends returns activity trends over time
 // @Summary Get activity trends
-// @Description Get activity trends (attempts, users, scores) grouped by time period
+// @Description Get activity trends (attempts, users, scores) grouped by time period. Teachers see only their data, admins see all data.
 // @Tags dashboard
 // @Accept json
 // @Produce json
@@ -82,8 +86,11 @@ func (h *DashboardHandler) GetActivityTrends(c *gin.Context) {
 		return
 	}
 
+	// Get teacher ID filter based on user role
+	teacherID := h.getTeacherIDFilter(c)
+
 	// Call service
-	trends, err := h.service.GetActivityTrends(c.Request.Context(), period)
+	trends, err := h.service.GetActivityTrends(c.Request.Context(), teacherID, period)
 	if err != nil {
 		h.handleServiceError(c, err)
 		return
@@ -94,7 +101,7 @@ func (h *DashboardHandler) GetActivityTrends(c *gin.Context) {
 
 // GetRecentActivities returns recent activities
 // @Summary Get recent activities
-// @Description Get a list of recent user activities (completed assessments, created questions, etc.)
+// @Description Get a list of recent user activities (completed assessments, created questions, etc.). Teachers see only their data, admins see all data.
 // @Tags dashboard
 // @Accept json
 // @Produce json
@@ -117,8 +124,11 @@ func (h *DashboardHandler) GetRecentActivities(c *gin.Context) {
 		limit = 50
 	}
 
+	// Get teacher ID filter based on user role
+	teacherID := h.getTeacherIDFilter(c)
+
 	// Call service
-	activities, err := h.service.GetRecentActivities(c.Request.Context(), limit)
+	activities, err := h.service.GetRecentActivities(c.Request.Context(), teacherID, limit)
 	if err != nil {
 		h.handleServiceError(c, err)
 		return
@@ -129,7 +139,7 @@ func (h *DashboardHandler) GetRecentActivities(c *gin.Context) {
 
 // GetQuestionDistribution returns question type distribution
 // @Summary Get question type distribution
-// @Description Get the distribution of questions by type with counts and percentages
+// @Description Get the distribution of questions by type with counts and percentages. Teachers see only their data, admins see all data.
 // @Tags dashboard
 // @Accept json
 // @Produce json
@@ -140,8 +150,11 @@ func (h *DashboardHandler) GetRecentActivities(c *gin.Context) {
 func (h *DashboardHandler) GetQuestionDistribution(c *gin.Context) {
 	h.LogRequest(c, "Getting question distribution")
 
+	// Get teacher ID filter based on user role
+	teacherID := h.getTeacherIDFilter(c)
+
 	// Call service
-	distribution, err := h.service.GetQuestionDistribution(c.Request.Context())
+	distribution, err := h.service.GetQuestionDistribution(c.Request.Context(), teacherID)
 	if err != nil {
 		h.handleServiceError(c, err)
 		return
@@ -152,7 +165,7 @@ func (h *DashboardHandler) GetQuestionDistribution(c *gin.Context) {
 
 // GetPerformanceBySubject returns performance statistics by subject/category
 // @Summary Get performance by subject
-// @Description Get average scores and attempt counts grouped by subject/category
+// @Description Get average scores and attempt counts grouped by subject/category. Teachers see only their data, admins see all data.
 // @Tags dashboard
 // @Accept json
 // @Produce json
@@ -175,14 +188,62 @@ func (h *DashboardHandler) GetPerformanceBySubject(c *gin.Context) {
 		limit = 20
 	}
 
+	// Get teacher ID filter based on user role
+	teacherID := h.getTeacherIDFilter(c)
+
 	// Call service
-	performance, err := h.service.GetPerformanceBySubject(c.Request.Context(), limit)
+	performance, err := h.service.GetPerformanceBySubject(c.Request.Context(), teacherID, limit)
 	if err != nil {
 		h.handleServiceError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, performance)
+}
+
+// ===== HELPER METHODS =====
+
+// getTeacherIDFilter returns the teacher ID filter based on user role
+// Returns nil for admin (show all data), returns user_id for teacher (show only their data)
+func (h *DashboardHandler) getTeacherIDFilter(c *gin.Context) *string {
+	// Get user role from context
+	userRole, exists := c.Get("user_role")
+	if !exists {
+		// If role not found, default to filtering by current user (safer)
+		userID, _ := c.Get("user_id")
+		if uid, ok := userID.(string); ok {
+			return &uid
+		}
+		return nil
+	}
+
+	role, ok := userRole.(models.UserRole)
+	if !ok {
+		// If role type is invalid, default to filtering by current user
+		userID, _ := c.Get("user_id")
+		if uid, ok := userID.(string); ok {
+			return &uid
+		}
+		return nil
+	}
+
+	// Admin sees all data (no filter)
+	if role == models.RoleAdmin {
+		return nil
+	}
+
+	// Teacher sees only their data (filter by user_id)
+	userID, exists := c.Get("user_id")
+	if !exists {
+		return nil
+	}
+
+	uid, ok := userID.(string)
+	if !ok {
+		return nil
+	}
+
+	return &uid
 }
 
 // ===== ERROR HANDLING =====
