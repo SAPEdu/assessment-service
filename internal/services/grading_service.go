@@ -227,7 +227,32 @@ func (s *gradingService) GradeMultipleAnswers(ctx context.Context, grades []repo
 			}
 			results[i] = *result
 		}
+		var attemptId uint
+		if len(grades) > 0 {
+			// Get attempt ID from first answer
+			err := tx.Model(&models.StudentAnswer{}).
+				Select("attempt_id").
+				Where("id = ?", grades[0].ID).
+				First(&attemptId).Error
+			if err != nil {
+				return fmt.Errorf("failed to get attempt ID for updating attempt grade: %w", err)
+			}
 
+			isPendingGrade, err := s.attemptService.HasPendingManualGrading(ctx, tx, attemptId)
+			if err != nil {
+				return fmt.Errorf("failed to check pending manual grading for attempt: %w", err)
+			}
+
+			if !isPendingGrade {
+				// Update attempt grade if all questions are graded
+				err = tx.Model(&models.AssessmentAttempt{}).
+					Where("id = ?", attemptId).
+					Update("is_graded", true).Error
+				if err != nil {
+					return fmt.Errorf("failed to update attempt grade: %w", err)
+				}
+			}
+		}
 		return nil
 	})
 

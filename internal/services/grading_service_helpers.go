@@ -564,8 +564,13 @@ func (s *gradingService) gradeAnswerInTransaction(ctx context.Context, tx *gorm.
 		return nil, fmt.Errorf("failed to get answer: %w", err)
 	}
 
+	assessmentQuestion, err := s.repo.AssessmentQuestion().GetQuestionAssessmentByAssessmentIdAndQuestionId(ctx, tx, answer.Attempt.AssessmentID, answer.QuestionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get assessment question: %w", err)
+	}
+
 	// Update with grade
-	maxScore := float64(answer.Question.Points)
+	maxScore := *assessmentQuestion.Points
 	answer.Score = score
 	answer.Feedback = feedback
 	answer.GradedBy = &graderID
@@ -580,9 +585,9 @@ func (s *gradingService) gradeAnswerInTransaction(ctx context.Context, tx *gorm.
 		AnswerID:      answerID,
 		QuestionID:    answer.QuestionID,
 		Score:         score,
-		MaxScore:      maxScore,
-		IsCorrect:     score == maxScore,
-		PartialCredit: score > 0 && score < maxScore,
+		MaxScore:      float64(maxScore),
+		IsCorrect:     score == float64(maxScore),
+		PartialCredit: score > 0 && score < float64(maxScore),
 		Feedback:      feedback,
 		GradedAt:      time.Now(),
 		GradedBy:      &graderID,

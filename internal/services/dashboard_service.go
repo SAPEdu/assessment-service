@@ -77,11 +77,12 @@ type SubjectPerformanceResponse struct {
 
 type DashboardService interface {
 	// Core dashboard endpoints
-	GetDashboardStats(ctx context.Context, period int) (*DashboardStatsResponse, error)
-	GetActivityTrends(ctx context.Context, period string) ([]ActivityTrendResponse, error)
-	GetRecentActivities(ctx context.Context, limit int) ([]RecentActivityResponse, error)
-	GetQuestionDistribution(ctx context.Context) ([]QuestionDistributionResponse, error)
-	GetPerformanceBySubject(ctx context.Context, limit int) ([]SubjectPerformanceResponse, error)
+	// teacherID is optional - if provided, filters data by teacher; if nil, returns all data (for admin)
+	GetDashboardStats(ctx context.Context, teacherID *string, period int) (*DashboardStatsResponse, error)
+	GetActivityTrends(ctx context.Context, teacherID *string, period string) ([]ActivityTrendResponse, error)
+	GetRecentActivities(ctx context.Context, teacherID *string, limit int) ([]RecentActivityResponse, error)
+	GetQuestionDistribution(ctx context.Context, teacherID *string) ([]QuestionDistributionResponse, error)
+	GetPerformanceBySubject(ctx context.Context, teacherID *string, limit int) ([]SubjectPerformanceResponse, error)
 }
 
 // ===== SERVICE IMPLEMENTATION =====
@@ -100,8 +101,8 @@ func NewDashboardService(repo repositories.Repository, db *gorm.DB, logger *slog
 	}
 }
 
-func (s *dashboardService) GetDashboardStats(ctx context.Context, period int) (*DashboardStatsResponse, error) {
-	s.logger.Info("Getting dashboard stats", "period", period)
+func (s *dashboardService) GetDashboardStats(ctx context.Context, teacherID *string, period int) (*DashboardStatsResponse, error) {
+	s.logger.Info("Getting dashboard stats", "teacherID", teacherID, "period", period)
 
 	// Use default period if not specified
 	if period <= 0 {
@@ -109,55 +110,55 @@ func (s *dashboardService) GetDashboardStats(ctx context.Context, period int) (*
 	}
 
 	// Get overview data
-	totalAssessments, err := s.repo.Dashboard().GetTotalAssessments(ctx, nil)
+	totalAssessments, err := s.repo.Dashboard().GetTotalAssessments(ctx, nil, teacherID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total assessments: %w", err)
 	}
 
-	totalQuestions, err := s.repo.Dashboard().GetTotalQuestions(ctx, nil)
+	totalQuestions, err := s.repo.Dashboard().GetTotalQuestions(ctx, nil, teacherID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total questions: %w", err)
 	}
 
-	totalQuestionBanks, err := s.repo.Dashboard().GetTotalQuestionBanks(ctx, nil)
+	totalQuestionBanks, err := s.repo.Dashboard().GetTotalQuestionBanks(ctx, nil, teacherID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total question banks: %w", err)
 	}
 
-	totalAttempts, err := s.repo.Dashboard().GetTotalAttempts(ctx, nil)
+	totalAttempts, err := s.repo.Dashboard().GetTotalAttempts(ctx, nil, teacherID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total attempts: %w", err)
 	}
 
-	activeUsers, err := s.repo.Dashboard().GetActiveUsers(ctx, nil, 30)
+	activeUsers, err := s.repo.Dashboard().GetActiveUsers(ctx, nil, teacherID, 30)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active users: %w", err)
 	}
 
 	// Get metrics
-	completionRate, err := s.repo.Dashboard().GetCompletionRate(ctx, nil)
+	completionRate, err := s.repo.Dashboard().GetCompletionRate(ctx, nil, teacherID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get completion rate: %w", err)
 	}
 
-	averageScore, err := s.repo.Dashboard().GetAverageScore(ctx, nil)
+	averageScore, err := s.repo.Dashboard().GetAverageScore(ctx, nil, teacherID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get average score: %w", err)
 	}
 
-	passRate, err := s.repo.Dashboard().GetPassRate(ctx, nil)
+	passRate, err := s.repo.Dashboard().GetPassRate(ctx, nil, teacherID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pass rate: %w", err)
 	}
 
 	// Get trends
-	assessmentsChange, err := s.repo.Dashboard().GetTrendChange(ctx, nil, "assessments", period)
+	assessmentsChange, err := s.repo.Dashboard().GetTrendChange(ctx, nil, teacherID, "assessments", period)
 	if err != nil {
 		s.logger.Warn("Failed to get assessments trend", "error", err)
 		assessmentsChange = 0
 	}
 
-	attemptsChange, err := s.repo.Dashboard().GetTrendChange(ctx, nil, "attempts", period)
+	attemptsChange, err := s.repo.Dashboard().GetTrendChange(ctx, nil, teacherID, "attempts", period)
 	if err != nil {
 		s.logger.Warn("Failed to get attempts trend", "error", err)
 		attemptsChange = 0
@@ -189,8 +190,8 @@ func (s *dashboardService) GetDashboardStats(ctx context.Context, period int) (*
 	return response, nil
 }
 
-func (s *dashboardService) GetActivityTrends(ctx context.Context, period string) ([]ActivityTrendResponse, error) {
-	s.logger.Info("Getting activity trends", "period", period)
+func (s *dashboardService) GetActivityTrends(ctx context.Context, teacherID *string, period string) ([]ActivityTrendResponse, error) {
+	s.logger.Info("Getting activity trends", "teacherID", teacherID, "period", period)
 
 	// Validate period
 	if period == "" {
@@ -202,7 +203,7 @@ func (s *dashboardService) GetActivityTrends(ctx context.Context, period string)
 	}
 
 	// Get trends from repository
-	trends, err := s.repo.Dashboard().GetActivityTrends(ctx, nil, period)
+	trends, err := s.repo.Dashboard().GetActivityTrends(ctx, nil, teacherID, period)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get activity trends: %w", err)
 	}
@@ -221,8 +222,8 @@ func (s *dashboardService) GetActivityTrends(ctx context.Context, period string)
 	return response, nil
 }
 
-func (s *dashboardService) GetRecentActivities(ctx context.Context, limit int) ([]RecentActivityResponse, error) {
-	s.logger.Info("Getting recent activities", "limit", limit)
+func (s *dashboardService) GetRecentActivities(ctx context.Context, teacherID *string, limit int) ([]RecentActivityResponse, error) {
+	s.logger.Info("Getting recent activities", "teacherID", teacherID, "limit", limit)
 
 	// Validate limit
 	if limit <= 0 || limit > 50 {
@@ -230,7 +231,7 @@ func (s *dashboardService) GetRecentActivities(ctx context.Context, limit int) (
 	}
 
 	// Get activities from repository
-	activities, err := s.repo.Dashboard().GetRecentActivities(ctx, nil, limit)
+	activities, err := s.repo.Dashboard().GetRecentActivities(ctx, nil, teacherID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get recent activities: %w", err)
 	}
@@ -256,11 +257,11 @@ func (s *dashboardService) GetRecentActivities(ctx context.Context, limit int) (
 	return response, nil
 }
 
-func (s *dashboardService) GetQuestionDistribution(ctx context.Context) ([]QuestionDistributionResponse, error) {
-	s.logger.Info("Getting question distribution")
+func (s *dashboardService) GetQuestionDistribution(ctx context.Context, teacherID *string) ([]QuestionDistributionResponse, error) {
+	s.logger.Info("Getting question distribution", "teacherID", teacherID)
 
 	// Get distribution from repository
-	distribution, err := s.repo.Dashboard().GetQuestionDistribution(ctx, nil)
+	distribution, err := s.repo.Dashboard().GetQuestionDistribution(ctx, nil, teacherID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get question distribution: %w", err)
 	}
@@ -279,8 +280,8 @@ func (s *dashboardService) GetQuestionDistribution(ctx context.Context) ([]Quest
 	return response, nil
 }
 
-func (s *dashboardService) GetPerformanceBySubject(ctx context.Context, limit int) ([]SubjectPerformanceResponse, error) {
-	s.logger.Info("Getting performance by subject", "limit", limit)
+func (s *dashboardService) GetPerformanceBySubject(ctx context.Context, teacherID *string, limit int) ([]SubjectPerformanceResponse, error) {
+	s.logger.Info("Getting performance by subject", "teacherID", teacherID, "limit", limit)
 
 	// Validate limit
 	if limit <= 0 || limit > 20 {
@@ -288,7 +289,7 @@ func (s *dashboardService) GetPerformanceBySubject(ctx context.Context, limit in
 	}
 
 	// Get performance from repository
-	performance, err := s.repo.Dashboard().GetPerformanceByCategory(ctx, nil, limit)
+	performance, err := s.repo.Dashboard().GetPerformanceByCategory(ctx, nil, teacherID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get performance by subject: %w", err)
 	}

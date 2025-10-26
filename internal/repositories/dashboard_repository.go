@@ -10,31 +10,32 @@ import (
 // DashboardRepository interface for dashboard analytics operations
 type DashboardRepository interface {
 	// Dashboard stats
-	GetTotalAssessments(ctx context.Context, tx *gorm.DB) (int64, error)
-	GetTotalQuestions(ctx context.Context, tx *gorm.DB) (int64, error)
-	GetTotalQuestionBanks(ctx context.Context, tx *gorm.DB) (int64, error)
-	GetTotalAttempts(ctx context.Context, tx *gorm.DB) (int64, error)
-	GetActiveUsers(ctx context.Context, tx *gorm.DB, days int) (int64, error)
+	// teacherID is optional - if provided, filters data by teacher; if nil, returns all data (for admin)
+	GetTotalAssessments(ctx context.Context, tx *gorm.DB, teacherID *string) (int64, error)
+	GetTotalQuestions(ctx context.Context, tx *gorm.DB, teacherID *string) (int64, error)
+	GetTotalQuestionBanks(ctx context.Context, tx *gorm.DB, teacherID *string) (int64, error)
+	GetTotalAttempts(ctx context.Context, tx *gorm.DB, teacherID *string) (int64, error)
+	GetActiveUsers(ctx context.Context, tx *gorm.DB, teacherID *string, days int) (int64, error)
 
 	// Metrics
-	GetCompletionRate(ctx context.Context, tx *gorm.DB) (float64, error)
-	GetAverageScore(ctx context.Context, tx *gorm.DB) (float64, error)
-	GetPassRate(ctx context.Context, tx *gorm.DB) (float64, error)
+	GetCompletionRate(ctx context.Context, tx *gorm.DB, teacherID *string) (float64, error)
+	GetAverageScore(ctx context.Context, tx *gorm.DB, teacherID *string) (float64, error)
+	GetPassRate(ctx context.Context, tx *gorm.DB, teacherID *string) (float64, error)
 
 	// Trends
-	GetTrendChange(ctx context.Context, tx *gorm.DB, entity string, days int) (float64, error)
+	GetTrendChange(ctx context.Context, tx *gorm.DB, teacherID *string, entity string, days int) (float64, error)
 
 	// Activity trends
-	GetActivityTrends(ctx context.Context, tx *gorm.DB, period string) ([]ActivityTrendData, error)
+	GetActivityTrends(ctx context.Context, tx *gorm.DB, teacherID *string, period string) ([]ActivityTrendData, error)
 
 	// Recent activities
-	GetRecentActivities(ctx context.Context, tx *gorm.DB, limit int) ([]RecentActivityData, error)
+	GetRecentActivities(ctx context.Context, tx *gorm.DB, teacherID *string, limit int) ([]RecentActivityData, error)
 
 	// Question distribution
-	GetQuestionDistribution(ctx context.Context, tx *gorm.DB) ([]QuestionDistributionData, error)
+	GetQuestionDistribution(ctx context.Context, tx *gorm.DB, teacherID *string) ([]QuestionDistributionData, error)
 
 	// Performance by category
-	GetPerformanceByCategory(ctx context.Context, tx *gorm.DB, limit int) ([]CategoryPerformanceData, error)
+	GetPerformanceByCategory(ctx context.Context, tx *gorm.DB, teacherID *string, limit int) ([]CategoryPerformanceData, error)
 }
 
 // Data structures for dashboard responses

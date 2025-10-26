@@ -67,7 +67,7 @@ type QuestionOrder struct {
 }
 
 type AnswerGrade struct {
-	ID       uint    `json:"id"`
+	ID       uint    `json:"answer_id"`
 	Score    float64 `json:"score"`
 	Feedback *string `json:"feedback"`
 	GraderID string  `json:"grader_id"`

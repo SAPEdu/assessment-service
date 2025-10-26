@@ -25,73 +25,100 @@ func (r *dashboardRepository) getDB(tx *gorm.DB) *gorm.DB {
 	return r.db
 }
 
+// applyTeacherFilter applies teacher filter if teacherID is provided
+func (r *dashboardRepository) applyTeacherFilter(db *gorm.DB, teacherID *string, tableName string) *gorm.DB {
+	if teacherID != nil && *teacherID != "" {
+		// Apply filter based on table
+		switch tableName {
+		case "assessments", "questions", "question_banks":
+			return db.Where(tableName+".created_by = ?", *teacherID)
+		case "assessment_attempts":
+			// For attempts, join with assessments and filter by assessment creator
+			return db.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+				Where("assessments.created_by = ?", *teacherID)
+		}
+	}
+	return db
+}
+
 // ===== DASHBOARD STATS =====
 
-func (r *dashboardRepository) GetTotalAssessments(ctx context.Context, tx *gorm.DB) (int64, error) {
+func (r *dashboardRepository) GetTotalAssessments(ctx context.Context, tx *gorm.DB, teacherID *string) (int64, error) {
 	db := r.getDB(tx)
 	var count int64
 
-	if err := db.WithContext(ctx).
-		Model(&models.Assessment{}).
-		Where("deleted_at IS NULL").
-		Count(&count).Error; err != nil {
+	query := db.WithContext(ctx).Model(&models.Assessment{}).Where("deleted_at IS NULL")
+	query = r.applyTeacherFilter(query, teacherID, "assessments")
+
+	if err := query.Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to get total assessments: %w", err)
 	}
 
 	return count, nil
 }
 
-func (r *dashboardRepository) GetTotalQuestions(ctx context.Context, tx *gorm.DB) (int64, error) {
+func (r *dashboardRepository) GetTotalQuestions(ctx context.Context, tx *gorm.DB, teacherID *string) (int64, error) {
 	db := r.getDB(tx)
 	var count int64
 
-	if err := db.WithContext(ctx).
-		Model(&models.Question{}).
-		Where("deleted_at IS NULL").
-		Count(&count).Error; err != nil {
+	query := db.WithContext(ctx).Model(&models.Question{}).Where("deleted_at IS NULL")
+	query = r.applyTeacherFilter(query, teacherID, "questions")
+
+	if err := query.Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to get total questions: %w", err)
 	}
 
 	return count, nil
 }
 
-func (r *dashboardRepository) GetTotalQuestionBanks(ctx context.Context, tx *gorm.DB) (int64, error) {
+func (r *dashboardRepository) GetTotalQuestionBanks(ctx context.Context, tx *gorm.DB, teacherID *string) (int64, error) {
 	db := r.getDB(tx)
 	var count int64
 
-	if err := db.WithContext(ctx).
-		Model(&models.QuestionBank{}).
-		Count(&count).Error; err != nil {
+	query := db.WithContext(ctx).Model(&models.QuestionBank{})
+	query = r.applyTeacherFilter(query, teacherID, "question_banks")
+
+	if err := query.Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to get total question banks: %w", err)
 	}
 
 	return count, nil
 }
 
-func (r *dashboardRepository) GetTotalAttempts(ctx context.Context, tx *gorm.DB) (int64, error) {
+func (r *dashboardRepository) GetTotalAttempts(ctx context.Context, tx *gorm.DB, teacherID *string) (int64, error) {
 	db := r.getDB(tx)
 	var count int64
 
-	if err := db.WithContext(ctx).
-		Model(&models.AssessmentAttempt{}).
-		Count(&count).Error; err != nil {
+	query := db.WithContext(ctx).Model(&models.AssessmentAttempt{})
+
+	// For attempts, we need special handling since we join with assessments
+	if teacherID != nil && *teacherID != "" {
+		query = query.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+			Where("assessments.created_by = ?", *teacherID)
+	}
+
+	if err := query.Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to get total attempts: %w", err)
 	}
 
 	return count, nil
 }
 
-func (r *dashboardRepository) GetActiveUsers(ctx context.Context, tx *gorm.DB, days int) (int64, error) {
+func (r *dashboardRepository) GetActiveUsers(ctx context.Context, tx *gorm.DB, teacherID *string, days int) (int64, error) {
 	db := r.getDB(tx)
 	var count int64
 
 	startDate := time.Now().AddDate(0, 0, -days)
 
-	if err := db.WithContext(ctx).
-		Model(&models.AssessmentAttempt{}).
-		Where("created_at >= ?", startDate).
-		Distinct("student_id").
-		Count(&count).Error; err != nil {
+	query := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).Where("assessment_attempts.created_at >= ?", startDate)
+
+	// Filter by teacher if provided
+	if teacherID != nil && *teacherID != "" {
+		query = query.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+			Where("assessments.created_by = ?", *teacherID)
+	}
+
+	if err := query.Distinct("student_id").Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to get active users: %w", err)
 	}
 
@@ -100,15 +127,19 @@ func (r *dashboardRepository) GetActiveUsers(ctx context.Context, tx *gorm.DB, d
 
 // ===== METRICS =====
 
-func (r *dashboardRepository) GetCompletionRate(ctx context.Context, tx *gorm.DB) (float64, error) {
+func (r *dashboardRepository) GetCompletionRate(ctx context.Context, tx *gorm.DB, teacherID *string) (float64, error) {
 	db := r.getDB(tx)
 
 	var total int64
 	var completed int64
 
-	if err := db.WithContext(ctx).
-		Model(&models.AssessmentAttempt{}).
-		Count(&total).Error; err != nil {
+	// Get total attempts
+	totalQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{})
+	if teacherID != nil && *teacherID != "" {
+		totalQuery = totalQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+			Where("assessments.created_by = ?", *teacherID)
+	}
+	if err := totalQuery.Count(&total).Error; err != nil {
 		return 0, fmt.Errorf("failed to get total attempts: %w", err)
 	}
 
@@ -116,44 +147,52 @@ func (r *dashboardRepository) GetCompletionRate(ctx context.Context, tx *gorm.DB
 		return 0, nil
 	}
 
-	if err := db.WithContext(ctx).
-		Model(&models.AssessmentAttempt{}).
-		Where("status = ?", models.AttemptCompleted).
-		Count(&completed).Error; err != nil {
+	// Get completed attempts
+	completedQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).Where("status = ?", models.AttemptCompleted)
+	if teacherID != nil && *teacherID != "" {
+		completedQuery = completedQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+			Where("assessments.created_by = ?", *teacherID)
+	}
+	if err := completedQuery.Count(&completed).Error; err != nil {
 		return 0, fmt.Errorf("failed to get completed attempts: %w", err)
 	}
 
 	return float64(completed) / float64(total) * 100, nil
 }
 
-func (r *dashboardRepository) GetAverageScore(ctx context.Context, tx *gorm.DB) (float64, error) {
+func (r *dashboardRepository) GetAverageScore(ctx context.Context, tx *gorm.DB, teacherID *string) (float64, error) {
 	db := r.getDB(tx)
 
 	var result struct {
 		AvgScore float64
 	}
 
-	if err := db.WithContext(ctx).
-		Model(&models.AssessmentAttempt{}).
-		Where("status = ?", models.AttemptCompleted).
-		Select("AVG(score) as avg_score").
-		Scan(&result).Error; err != nil {
+	query := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).Where("assessment_attempts.status = ?", models.AttemptCompleted)
+	if teacherID != nil && *teacherID != "" {
+		query = query.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+			Where("assessments.created_by = ?", *teacherID)
+	}
+
+	if err := query.Select("AVG(assessment_attempts.score) as avg_score").Scan(&result).Error; err != nil {
 		return 0, fmt.Errorf("failed to get average score: %w", err)
 	}
 
 	return result.AvgScore, nil
 }
 
-func (r *dashboardRepository) GetPassRate(ctx context.Context, tx *gorm.DB) (float64, error) {
+func (r *dashboardRepository) GetPassRate(ctx context.Context, tx *gorm.DB, teacherID *string) (float64, error) {
 	db := r.getDB(tx)
 
 	var totalCompleted int64
 	var passed int64
 
-	if err := db.WithContext(ctx).
-		Model(&models.AssessmentAttempt{}).
-		Where("status = ?", models.AttemptCompleted).
-		Count(&totalCompleted).Error; err != nil {
+	// Get total completed attempts
+	totalQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).Where("assessment_attempts.status = ?", models.AttemptCompleted)
+	if teacherID != nil && *teacherID != "" {
+		totalQuery = totalQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+			Where("assessments.created_by = ?", *teacherID)
+	}
+	if err := totalQuery.Count(&totalCompleted).Error; err != nil {
 		return 0, fmt.Errorf("failed to get total completed attempts: %w", err)
 	}
 
@@ -161,10 +200,14 @@ func (r *dashboardRepository) GetPassRate(ctx context.Context, tx *gorm.DB) (flo
 		return 0, nil
 	}
 
-	if err := db.WithContext(ctx).
-		Model(&models.AssessmentAttempt{}).
-		Where("status = ? AND passed = ?", models.AttemptCompleted, true).
-		Count(&passed).Error; err != nil {
+	// Get passed attempts
+	passedQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+		Where("assessment_attempts.status = ? AND assessment_attempts.passed = ?", models.AttemptCompleted, true)
+	if teacherID != nil && *teacherID != "" {
+		passedQuery = passedQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+			Where("assessments.created_by = ?", *teacherID)
+	}
+	if err := passedQuery.Count(&passed).Error; err != nil {
 		return 0, fmt.Errorf("failed to get passed attempts: %w", err)
 	}
 
@@ -173,7 +216,7 @@ func (r *dashboardRepository) GetPassRate(ctx context.Context, tx *gorm.DB) (flo
 
 // ===== TRENDS =====
 
-func (r *dashboardRepository) GetTrendChange(ctx context.Context, tx *gorm.DB, entity string, days int) (float64, error) {
+func (r *dashboardRepository) GetTrendChange(ctx context.Context, tx *gorm.DB, teacherID *string, entity string, days int) (float64, error) {
 	db := r.getDB(tx)
 
 	currentPeriodStart := time.Now().AddDate(0, 0, -days)
@@ -184,33 +227,52 @@ func (r *dashboardRepository) GetTrendChange(ctx context.Context, tx *gorm.DB, e
 	var previousCount int64
 
 	var model interface{}
+	var tableName string
 	switch entity {
 	case "assessments":
 		model = &models.Assessment{}
+		tableName = "assessments"
 	case "attempts":
 		model = &models.AssessmentAttempt{}
+		tableName = "assessment_attempts"
 	case "questions":
 		model = &models.Question{}
+		tableName = "questions"
 	default:
 		return 0, fmt.Errorf("unsupported entity: %s", entity)
 	}
 
 	// Current period count
-	query := db.WithContext(ctx).Model(model).Where("created_at >= ?", currentPeriodStart)
+	currentQuery := db.WithContext(ctx).Model(model)
 	if entity == "assessments" || entity == "questions" {
-		query = query.Where("deleted_at IS NULL")
+		currentQuery = currentQuery.Where(tableName+".created_at >= ? AND "+tableName+".deleted_at IS NULL", currentPeriodStart)
+		currentQuery = r.applyTeacherFilter(currentQuery, teacherID, tableName)
+	} else if entity == "attempts" {
+		currentQuery = currentQuery.Where(tableName+".created_at >= ?", currentPeriodStart)
+		if teacherID != nil && *teacherID != "" {
+			currentQuery = currentQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+				Where("assessments.created_by = ?", *teacherID)
+		}
 	}
-	if err := query.Count(&currentCount).Error; err != nil {
+	if err := currentQuery.Count(&currentCount).Error; err != nil {
 		return 0, fmt.Errorf("failed to get current count: %w", err)
 	}
 
 	// Previous period count
-	query = db.WithContext(ctx).Model(model).
-		Where("created_at >= ? AND created_at < ?", previousPeriodStart, previousPeriodEnd)
+	previousQuery := db.WithContext(ctx).Model(model)
 	if entity == "assessments" || entity == "questions" {
-		query = query.Where("deleted_at IS NULL")
+		previousQuery = previousQuery.Where(tableName+".created_at >= ? AND "+tableName+".created_at < ? AND "+tableName+".deleted_at IS NULL",
+			previousPeriodStart, previousPeriodEnd)
+		previousQuery = r.applyTeacherFilter(previousQuery, teacherID, tableName)
+	} else if entity == "attempts" {
+		previousQuery = previousQuery.Where(tableName+".created_at >= ? AND "+tableName+".created_at < ?",
+			previousPeriodStart, previousPeriodEnd)
+		if teacherID != nil && *teacherID != "" {
+			previousQuery = previousQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+				Where("assessments.created_by = ?", *teacherID)
+		}
 	}
-	if err := query.Count(&previousCount).Error; err != nil {
+	if err := previousQuery.Count(&previousCount).Error; err != nil {
 		return 0, fmt.Errorf("failed to get previous count: %w", err)
 	}
 
@@ -227,7 +289,7 @@ func (r *dashboardRepository) GetTrendChange(ctx context.Context, tx *gorm.DB, e
 
 // ===== ACTIVITY TRENDS =====
 
-func (r *dashboardRepository) GetActivityTrends(ctx context.Context, tx *gorm.DB, period string) ([]repositories.ActivityTrendData, error) {
+func (r *dashboardRepository) GetActivityTrends(ctx context.Context, tx *gorm.DB, teacherID *string, period string) ([]repositories.ActivityTrendData, error) {
 	db := r.getDB(tx)
 
 	var results []repositories.ActivityTrendData
@@ -244,25 +306,36 @@ func (r *dashboardRepository) GetActivityTrends(ctx context.Context, tx *gorm.DB
 			var users int64
 			var avgScore float64
 
-			db.WithContext(ctx).
-				Model(&models.AssessmentAttempt{}).
-				Where("created_at >= ? AND created_at < ?", startOfDay, endOfDay).
-				Count(&attempts)
+			// Count attempts
+			attemptQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+				Where("assessment_attempts.created_at >= ? AND assessment_attempts.created_at < ?", startOfDay, endOfDay)
+			if teacherID != nil && *teacherID != "" {
+				attemptQuery = attemptQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+					Where("assessments.created_by = ?", *teacherID)
+			}
+			attemptQuery.Count(&attempts)
 
-			db.WithContext(ctx).
-				Model(&models.AssessmentAttempt{}).
-				Where("created_at >= ? AND created_at < ?", startOfDay, endOfDay).
-				Distinct("student_id").
-				Count(&users)
+			// Count users
+			userQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+				Where("assessment_attempts.created_at >= ? AND assessment_attempts.created_at < ?", startOfDay, endOfDay)
+			if teacherID != nil && *teacherID != "" {
+				userQuery = userQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+					Where("assessments.created_by = ?", *teacherID)
+			}
+			userQuery.Distinct("student_id").Count(&users)
 
+			// Get average score
 			var scoreResult struct {
 				AvgScore float64
 			}
-			db.WithContext(ctx).
-				Model(&models.AssessmentAttempt{}).
-				Where("created_at >= ? AND created_at < ? AND status = ?", startOfDay, endOfDay, models.AttemptCompleted).
-				Select("COALESCE(AVG(score), 0) as avg_score").
-				Scan(&scoreResult)
+			scoreQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+				Where("assessment_attempts.created_at >= ? AND assessment_attempts.created_at < ? AND assessment_attempts.status = ?",
+					startOfDay, endOfDay, models.AttemptCompleted)
+			if teacherID != nil && *teacherID != "" {
+				scoreQuery = scoreQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+					Where("assessments.created_by = ?", *teacherID)
+			}
+			scoreQuery.Select("COALESCE(AVG(assessment_attempts.score), 0) as avg_score").Scan(&scoreResult)
 			avgScore = scoreResult.AvgScore
 
 			results = append(results, repositories.ActivityTrendData{
@@ -284,25 +357,36 @@ func (r *dashboardRepository) GetActivityTrends(ctx context.Context, tx *gorm.DB
 			var users int64
 			var avgScore float64
 
-			db.WithContext(ctx).
-				Model(&models.AssessmentAttempt{}).
-				Where("created_at >= ? AND created_at < ?", startDate, endDate).
-				Count(&attempts)
+			// Count attempts
+			attemptQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+				Where("assessment_attempts.created_at >= ? AND assessment_attempts.created_at < ?", startDate, endDate)
+			if teacherID != nil && *teacherID != "" {
+				attemptQuery = attemptQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+					Where("assessments.created_by = ?", *teacherID)
+			}
+			attemptQuery.Count(&attempts)
 
-			db.WithContext(ctx).
-				Model(&models.AssessmentAttempt{}).
-				Where("created_at >= ? AND created_at < ?", startDate, endDate).
-				Distinct("student_id").
-				Count(&users)
+			// Count users
+			userQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+				Where("assessment_attempts.created_at >= ? AND assessment_attempts.created_at < ?", startDate, endDate)
+			if teacherID != nil && *teacherID != "" {
+				userQuery = userQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+					Where("assessments.created_by = ?", *teacherID)
+			}
+			userQuery.Distinct("student_id").Count(&users)
 
+			// Get average score
 			var scoreResult struct {
 				AvgScore float64
 			}
-			db.WithContext(ctx).
-				Model(&models.AssessmentAttempt{}).
-				Where("created_at >= ? AND created_at < ? AND status = ?", startDate, endDate, models.AttemptCompleted).
-				Select("COALESCE(AVG(score), 0) as avg_score").
-				Scan(&scoreResult)
+			scoreQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+				Where("assessment_attempts.created_at >= ? AND assessment_attempts.created_at < ? AND assessment_attempts.status = ?",
+					startDate, endDate, models.AttemptCompleted)
+			if teacherID != nil && *teacherID != "" {
+				scoreQuery = scoreQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+					Where("assessments.created_by = ?", *teacherID)
+			}
+			scoreQuery.Select("COALESCE(AVG(assessment_attempts.score), 0) as avg_score").Scan(&scoreResult)
 			avgScore = scoreResult.AvgScore
 
 			weekNum := 4 - i
@@ -326,25 +410,36 @@ func (r *dashboardRepository) GetActivityTrends(ctx context.Context, tx *gorm.DB
 			var users int64
 			var avgScore float64
 
-			db.WithContext(ctx).
-				Model(&models.AssessmentAttempt{}).
-				Where("created_at >= ? AND created_at < ?", startOfMonth, endOfMonth).
-				Count(&attempts)
+			// Count attempts
+			attemptQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+				Where("assessment_attempts.created_at >= ? AND assessment_attempts.created_at < ?", startOfMonth, endOfMonth)
+			if teacherID != nil && *teacherID != "" {
+				attemptQuery = attemptQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+					Where("assessments.created_by = ?", *teacherID)
+			}
+			attemptQuery.Count(&attempts)
 
-			db.WithContext(ctx).
-				Model(&models.AssessmentAttempt{}).
-				Where("created_at >= ? AND created_at < ?", startOfMonth, endOfMonth).
-				Distinct("student_id").
-				Count(&users)
+			// Count users
+			userQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+				Where("assessment_attempts.created_at >= ? AND assessment_attempts.created_at < ?", startOfMonth, endOfMonth)
+			if teacherID != nil && *teacherID != "" {
+				userQuery = userQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+					Where("assessments.created_by = ?", *teacherID)
+			}
+			userQuery.Distinct("student_id").Count(&users)
 
+			// Get average score
 			var scoreResult struct {
 				AvgScore float64
 			}
-			db.WithContext(ctx).
-				Model(&models.AssessmentAttempt{}).
-				Where("created_at >= ? AND created_at < ? AND status = ?", startOfMonth, endOfMonth, models.AttemptCompleted).
-				Select("COALESCE(AVG(score), 0) as avg_score").
-				Scan(&scoreResult)
+			scoreQuery := db.WithContext(ctx).Model(&models.AssessmentAttempt{}).
+				Where("assessment_attempts.created_at >= ? AND assessment_attempts.created_at < ? AND assessment_attempts.status = ?",
+					startOfMonth, endOfMonth, models.AttemptCompleted)
+			if teacherID != nil && *teacherID != "" {
+				scoreQuery = scoreQuery.Joins("JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
+					Where("assessments.created_by = ?", *teacherID)
+			}
+			scoreQuery.Select("COALESCE(AVG(assessment_attempts.score), 0) as avg_score").Scan(&scoreResult)
 			avgScore = scoreResult.AvgScore
 
 			results = append(results, repositories.ActivityTrendData{
@@ -362,7 +457,7 @@ func (r *dashboardRepository) GetActivityTrends(ctx context.Context, tx *gorm.DB
 
 // ===== RECENT ACTIVITIES =====
 
-func (r *dashboardRepository) GetRecentActivities(ctx context.Context, tx *gorm.DB, limit int) ([]repositories.RecentActivityData, error) {
+func (r *dashboardRepository) GetRecentActivities(ctx context.Context, tx *gorm.DB, teacherID *string, limit int) ([]repositories.RecentActivityData, error) {
 	db := r.getDB(tx)
 
 	var activities []repositories.RecentActivityData
@@ -378,15 +473,21 @@ func (r *dashboardRepository) GetRecentActivities(ctx context.Context, tx *gorm.
 		UserName        string
 	}
 
-	if err := db.WithContext(ctx).
+	query := db.WithContext(ctx).
 		Table("assessment_attempts").
 		Select("assessment_attempts.id, assessment_attempts.student_id, assessment_attempts.assessment_id, "+
 			"assessments.title as assessment_title, assessment_attempts.score, assessment_attempts.completed_at as created_at, "+
 			"users.full_name as user_name").
 		Joins("LEFT JOIN assessments ON assessment_attempts.assessment_id = assessments.id").
 		Joins("LEFT JOIN users ON assessment_attempts.student_id = users.id").
-		Where("assessment_attempts.status = ?", models.AttemptCompleted).
-		Order("assessment_attempts.completed_at DESC").
+		Where("assessment_attempts.status = ?", models.AttemptCompleted)
+
+	// Filter by teacher if provided
+	if teacherID != nil && *teacherID != "" {
+		query = query.Where("assessments.created_by = ?", *teacherID)
+	}
+
+	if err := query.Order("assessment_attempts.completed_at DESC").
 		Limit(limit).
 		Scan(&attempts).Error; err != nil {
 		return nil, fmt.Errorf("failed to get recent activities: %w", err)
@@ -410,7 +511,7 @@ func (r *dashboardRepository) GetRecentActivities(ctx context.Context, tx *gorm.
 
 // ===== QUESTION DISTRIBUTION =====
 
-func (r *dashboardRepository) GetQuestionDistribution(ctx context.Context, tx *gorm.DB) ([]repositories.QuestionDistributionData, error) {
+func (r *dashboardRepository) GetQuestionDistribution(ctx context.Context, tx *gorm.DB, teacherID *string) ([]repositories.QuestionDistributionData, error) {
 	db := r.getDB(tx)
 
 	var results []struct {
@@ -418,12 +519,16 @@ func (r *dashboardRepository) GetQuestionDistribution(ctx context.Context, tx *g
 		Count int64
 	}
 
-	if err := db.WithContext(ctx).
-		Model(&models.Question{}).
+	query := db.WithContext(ctx).Model(&models.Question{}).
 		Select("type, COUNT(*) as count").
-		Where("deleted_at IS NULL").
-		Group("type").
-		Scan(&results).Error; err != nil {
+		Where("deleted_at IS NULL")
+
+	// Filter by teacher if provided
+	if teacherID != nil && *teacherID != "" {
+		query = query.Where("created_by = ?", *teacherID)
+	}
+
+	if err := query.Group("type").Scan(&results).Error; err != nil {
 		return nil, fmt.Errorf("failed to get question distribution: %w", err)
 	}
 
@@ -452,7 +557,7 @@ func (r *dashboardRepository) GetQuestionDistribution(ctx context.Context, tx *g
 
 // ===== PERFORMANCE BY CATEGORY =====
 
-func (r *dashboardRepository) GetPerformanceByCategory(ctx context.Context, tx *gorm.DB, limit int) ([]repositories.CategoryPerformanceData, error) {
+func (r *dashboardRepository) GetPerformanceByCategory(ctx context.Context, tx *gorm.DB, teacherID *string, limit int) ([]repositories.CategoryPerformanceData, error) {
 	db := r.getDB(tx)
 
 	var results []struct {
@@ -463,7 +568,7 @@ func (r *dashboardRepository) GetPerformanceByCategory(ctx context.Context, tx *
 	}
 
 	// Query to get performance by category through questions in assessments
-	if err := db.WithContext(ctx).
+	query := db.WithContext(ctx).
 		Table("assessment_attempts").
 		Select("question_categories.id as category_id, "+
 			"COALESCE(question_categories.name, 'Uncategorized') as category_name, "+
@@ -473,8 +578,14 @@ func (r *dashboardRepository) GetPerformanceByCategory(ctx context.Context, tx *
 		Joins("JOIN assessment_questions ON assessments.id = assessment_questions.assessment_id").
 		Joins("JOIN questions ON assessment_questions.question_id = questions.id").
 		Joins("LEFT JOIN question_categories ON questions.category_id = question_categories.id").
-		Where("assessment_attempts.status = ?", models.AttemptCompleted).
-		Group("question_categories.id, question_categories.name").
+		Where("assessment_attempts.status = ?", models.AttemptCompleted)
+
+	// Filter by teacher if provided
+	if teacherID != nil && *teacherID != "" {
+		query = query.Where("assessments.created_by = ?", *teacherID)
+	}
+
+	if err := query.Group("question_categories.id, question_categories.name").
 		Order("total_attempts DESC").
 		Limit(limit).
 		Scan(&results).Error; err != nil {
