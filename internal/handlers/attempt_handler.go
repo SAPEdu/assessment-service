@@ -780,7 +780,7 @@ func (h *AttemptHandler) parseAttemptFilters(c *gin.Context) repositories.Attemp
 
 	if studentIDStr := c.Query("student_id"); strings.TrimSpace(studentIDStr) != "" {
 		studentIDStr = strings.TrimSpace(studentIDStr)
-		filters.StudentID = &studentIDStr
+		filters.UserID = &studentIDStr
 	}
 
 	return filters

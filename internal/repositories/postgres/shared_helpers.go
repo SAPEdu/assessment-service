@@ -80,8 +80,8 @@ func (h *SharedHelpers) ApplyAttemptFilters(query *gorm.DB, filters repositories
 	if filters.Status != nil {
 		query = query.Where("status = ?", *filters.Status)
 	}
-	if filters.StudentID != nil {
-		query = query.Where("student_id = ?", *filters.StudentID)
+	if filters.UserID != nil {
+		query = query.Where("student_id = ?", *filters.UserID)
 	}
 	if filters.DateFrom != nil {
 		query = query.Where("created_at >= ?", *filters.DateFrom)
@@ -89,6 +89,7 @@ func (h *SharedHelpers) ApplyAttemptFilters(query *gorm.DB, filters repositories
 	if filters.DateTo != nil {
 		query = query.Where("created_at <= ?", *filters.DateTo)
 	}
+
 	return query
 }
 
