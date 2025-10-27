@@ -219,16 +219,12 @@ func (s *gradingService) GradeMultipleAnswers(ctx context.Context, grades []repo
 
 	// Process each grade in transaction
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		finalScore := 0.0
-		maxScore := 0.0
 		for i, grade := range grades {
 			result, gradeErr := s.gradeAnswerInTransaction(ctx, tx, grade.ID, grade.Score, grade.Feedback, graderID)
 			if gradeErr != nil {
 				return fmt.Errorf("failed to grade answer %d: %w", grade.ID, gradeErr)
 			}
 			results[i] = *result
-			finalScore += result.Score
-			maxScore += result.MaxScore
 		}
 		var attemptId uint
 		if len(grades) > 0 {
@@ -247,7 +243,18 @@ func (s *gradingService) GradeMultipleAnswers(ctx context.Context, grades []repo
 			}
 
 			if !isPendingGrade {
-				// Update attempt grade if all questions are graded
+				answers, err := s.repo.Answer().GetByAttempt(ctx, tx, attemptId)
+				if err != nil {
+					return fmt.Errorf("failed to get answers for attempt: %w", err)
+				}
+
+				var finalScore float64
+				var maxScore float64
+				for _, ans := range answers {
+					finalScore += ans.Score
+					maxScore += float64(ans.MaxScore)
+				}
+
 				var assessmentId uint
 				err = tx.Model(&models.AssessmentAttempt{}).
 					Select("assessment_id").
