@@ -210,7 +210,6 @@ func (s *gradingService) GradeAttempt(ctx context.Context, attemptID uint, grade
 	return result, nil
 }
 
-// DEPRECATED: This method is deprecated. Use GradeAnswer in a loop instead to grade multiple answers individually.
 func (s *gradingService) GradeMultipleAnswers(ctx context.Context, grades []repositories.AnswerGrade, graderID string) ([]GradingResult, error) {
 	s.logger.Info("Grading multiple answers",
 		"count", len(grades),
@@ -220,12 +219,16 @@ func (s *gradingService) GradeMultipleAnswers(ctx context.Context, grades []repo
 
 	// Process each grade in transaction
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		finalScore := 0.0
+		maxScore := 0.0
 		for i, grade := range grades {
 			result, gradeErr := s.gradeAnswerInTransaction(ctx, tx, grade.ID, grade.Score, grade.Feedback, graderID)
 			if gradeErr != nil {
 				return fmt.Errorf("failed to grade answer %d: %w", grade.ID, gradeErr)
 			}
 			results[i] = *result
+			finalScore += result.Score
+			maxScore += result.MaxScore
 		}
 		var attemptId uint
 		if len(grades) > 0 {
@@ -245,9 +248,28 @@ func (s *gradingService) GradeMultipleAnswers(ctx context.Context, grades []repo
 
 			if !isPendingGrade {
 				// Update attempt grade if all questions are graded
+				var assessmentId uint
+				err = tx.Model(&models.AssessmentAttempt{}).
+					Select("assessment_id").
+					Where("id = ?", attemptId).
+					First(&assessmentId).Error
+				if err != nil {
+					return fmt.Errorf("failed to get assessment ID for updating attempt grade: %w", err)
+				}
+				// get passing score
+				assessment, err := s.repo.Assessment().GetByID(ctx, tx, assessmentId)
+				if err != nil {
+					return fmt.Errorf("failed to get assessment for updating attempt grade: %w", err)
+				}
 				err = tx.Model(&models.AssessmentAttempt{}).
 					Where("id = ?", attemptId).
-					Update("is_graded", true).Error
+					UpdateColumns(map[string]interface{}{
+						"score":      finalScore,
+						"is_graded":  true,
+						"max_score":  int(maxScore),
+						"is_passed":  finalScore >= float64(assessment.PassingScore),
+						"percentage": (finalScore / maxScore) * 100,
+					}).Error
 				if err != nil {
 					return fmt.Errorf("failed to update attempt grade: %w", err)
 				}
