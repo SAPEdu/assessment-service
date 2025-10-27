@@ -377,7 +377,9 @@ func (s *attemptService) List(ctx context.Context, filters repositories.AttemptF
 
 	// Filter based on user role
 	if userRole == models.RoleStudent {
-		filters.StudentID = &userID
+		filters.UserID = &userID
+	} else if userRole == models.RoleTeacher {
+		filters.IsTeacherView = true
 	}
 
 	attempts, total, err := s.repo.Attempt().List(ctx, s.db, filters)
@@ -396,7 +398,7 @@ func (s *attemptService) List(ctx context.Context, filters repositories.AttemptF
 
 func (s *attemptService) GetByStudent(ctx context.Context, studentID string, filters repositories.AttemptFilters) ([]*AttemptResponse, int64, error) {
 	// Set student filter
-	filters.StudentID = &studentID
+	filters.UserID = &studentID
 
 	attempts, total, err := s.repo.Attempt().GetByStudent(ctx, s.db, studentID, filters)
 	if err != nil {
