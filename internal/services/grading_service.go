@@ -274,7 +274,7 @@ func (s *gradingService) GradeMultipleAnswers(ctx context.Context, grades []repo
 						"score":      finalScore,
 						"is_graded":  true,
 						"max_score":  int(maxScore),
-						"is_passed":  finalScore >= float64(assessment.PassingScore),
+						"passed":     finalScore >= float64(assessment.PassingScore),
 						"percentage": (finalScore / maxScore) * 100,
 					}).Error
 				if err != nil {
