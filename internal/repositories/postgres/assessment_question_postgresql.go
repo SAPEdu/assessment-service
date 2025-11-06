@@ -141,17 +141,29 @@ func (aq *AssessmentQuestionPostgreSQL) AddQuestion(ctx context.Context, tx *gor
 // RemoveQuestion removes a question from an assessment
 func (aq *AssessmentQuestionPostgreSQL) RemoveQuestion(ctx context.Context, tx *gorm.DB, assessmentID, questionID uint) error {
 	db := aq.getDB(tx)
-	result := db.WithContext(ctx).
-		Where("assessment_id = ? AND question_id = ?", assessmentID, questionID).
-		Unscoped().
-		Delete(&models.AssessmentQuestion{})
+	err := db.WithContext(ctx).Transaction(func(txInner *gorm.DB) error {
+		result := db.WithContext(ctx).
+			Where("assessment_id = ? AND question_id = ?", assessmentID, questionID).
+			Unscoped().
+			Delete(&models.AssessmentQuestion{})
 
-	if result.Error != nil {
-		return fmt.Errorf("failed to remove question from assessment: %w", result.Error)
-	}
+		if result.Error != nil {
+			return fmt.Errorf("failed to remove question from assessment: %w", result.Error)
+		}
 
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("no relationship found between assessment %d and question %d", assessmentID, questionID)
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("no relationship found between assessment %d and question %d", assessmentID, questionID)
+		}
+
+		err := aq.reorderQuestion(tx, ctx, assessmentID)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// Invalidate caches
@@ -230,23 +242,9 @@ func (aq *AssessmentQuestionPostgreSQL) RemoveQuestions(ctx context.Context, tx 
 			return fmt.Errorf("no questions found in assessment %d to remove", assessmentID)
 		}
 
-		// Reorder remaining questions
-		var remaining []*models.AssessmentQuestion
-		if err := execDB.WithContext(ctx).
-			Where("assessment_id = ?", assessmentID).
-			Order("\"order\" ASC").
-			Find(&remaining).Error; err != nil {
-			return fmt.Errorf("failed to get remaining questions: %w", err)
-		}
-
-		// Update order to be sequential
-		for i, aq := range remaining {
-			newOrder := i + 1
-			if aq.Order != newOrder {
-				if err := execDB.Model(aq).Update("order", newOrder).Error; err != nil {
-					return fmt.Errorf("failed to reorder question %d: %w", aq.ID, err)
-				}
-			}
+		err := aq.reorderQuestion(execDB, ctx, assessmentID)
+		if err != nil {
+			return err
 		}
 
 		return nil
@@ -268,6 +266,28 @@ func (aq *AssessmentQuestionPostgreSQL) RemoveQuestions(ctx context.Context, tx 
 	// Invalidate caches after successful removal
 	aq.invalidateCachesForAssessmentQuestion(ctx, assessmentID)
 
+	return nil
+}
+
+func (aq *AssessmentQuestionPostgreSQL) reorderQuestion(execDB *gorm.DB, ctx context.Context, assessmentID uint) error {
+	// Reorder remaining questions
+	var remaining []*models.AssessmentQuestion
+	if err := execDB.WithContext(ctx).
+		Where("assessment_id = ?", assessmentID).
+		Order("\"order\" ASC").
+		Find(&remaining).Error; err != nil {
+		return fmt.Errorf("failed to get remaining questions: %w", err)
+	}
+
+	// Update order to be sequential
+	for i, aq := range remaining {
+		newOrder := i + 1
+		if aq.Order != newOrder {
+			if err := execDB.Model(aq).Update("order", newOrder).Error; err != nil {
+				return fmt.Errorf("failed to reorder question %d: %w", aq.ID, err)
+			}
+		}
+	}
 	return nil
 }
 
