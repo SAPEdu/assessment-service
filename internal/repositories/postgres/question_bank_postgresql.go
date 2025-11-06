@@ -184,6 +184,7 @@ func (r *questionBankRepository) UnshareBank(ctx context.Context, tx *gorm.DB, b
 	db := r.getDB(tx)
 	if err := db.WithContext(ctx).
 		Where("bank_id = ? AND user_id = ?", bankID, userID).
+		Unscoped().
 		Delete(&models.QuestionBankShare{}).Error; err != nil {
 		return r.handleDBError(err, "unshare question bank")
 	}
