@@ -138,14 +138,13 @@ func (u *UserCasdoor) convertCasdoorUserToModel(casdoorUser *casdoorsdk.User) *m
 	//}
 
 	return &models.User{
-		ID:            id,
-		FullName:      casdoorUser.DisplayName,
-		Email:         casdoorUser.Email,
-		Role:          u.convertCasdoorRolesToModel(casdoorUser),
-		AvatarURL:     &casdoorUser.Avatar,
-		EmailVerified: casdoorUser.EmailVerified,
-		CreatedAt:     createdAt,
-		UpdatedAt:     updatedAt,
+		ID:        id,
+		FullName:  casdoorUser.DisplayName,
+		Email:     casdoorUser.Email,
+		Role:      u.convertCasdoorRolesToModel(casdoorUser),
+		AvatarURL: &casdoorUser.Avatar,
+		CreatedAt: createdAt.String(),
+		UpdatedAt: updatedAt.String(),
 	}
 }
 

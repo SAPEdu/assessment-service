@@ -1,11 +1,5 @@
 package models
 
-import (
-	"time"
-
-	"gorm.io/gorm"
-)
-
 type UserRole string
 type Role = UserRole // Alias for compatibility
 
@@ -25,14 +19,8 @@ type User struct {
 	// Profile info
 	AvatarURL *string `json:"avatar_url" gorm:"size:500"`
 
-	// Settings
-
-	// Status
-	EmailVerified bool `json:"email_verified" gorm:"default:false"`
-
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 func (User) TableName() string {

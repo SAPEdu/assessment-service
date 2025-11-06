@@ -674,7 +674,7 @@ func (s *attemptService) sanitizeShortAnswerContent(content datatypes.JSON) data
 // generateAndCacheSeed generates a cryptographically secure random seed and caches it in Redis
 // Returns the seed (falls back to timestamp-based seed if Redis fails)
 func (s *attemptService) generateAndCacheSeed(ctx context.Context, attemptID uint, seedType string, ttlMinutes int) (int64, error) {
-	// Generate cryptographically secure random seed
+	// Generate a cryptographically secure random seed
 	var seedBytes [8]byte
 	if _, err := cryptoRand.Read(seedBytes[:]); err != nil {
 		s.logger.Warn("Failed to generate crypto random seed, using timestamp fallback",
@@ -684,7 +684,7 @@ func (s *attemptService) generateAndCacheSeed(ctx context.Context, attemptID uin
 		return time.Now().UnixNano(), nil
 	}
 
-	seed := int64(binary.BigEndian.Uint64(seedBytes[:]))
+	seed := int64(binary.BigEndian.Uint64(seedBytes[:]) & 0x7FFFFFFFFFFFFFFF) // Ensure non-negative
 
 	// Cache in Redis with TTL
 	cacheKey := fmt.Sprintf("attempt:%d:%s_seed", attemptID, seedType)
@@ -759,8 +759,8 @@ func (s *attemptService) shuffleQuestionsWithSeed(questions []QuestionForAttempt
 
 	// Update IsFirst and IsLast flags
 	for i := range shuffled {
-		shuffled[i].IsFirst = (i == 0)
-		shuffled[i].IsLast = (i == len(shuffled)-1)
+		shuffled[i].IsFirst = i == 0
+		shuffled[i].IsLast = i == len(shuffled)-1
 	}
 
 	return shuffled

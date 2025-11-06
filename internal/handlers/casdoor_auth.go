@@ -244,12 +244,8 @@ func (cam *CasdoorAuthMiddleware) createUserFromClaims(claims *casdoorsdk.Claims
 		Email:     email,
 		Role:      role,
 		AvatarURL: &avatarURL,
-		//IsActive:      true,
-		EmailVerified: true,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-		//Timezone:      "UTC",
-		//Language:      "en",
+		CreatedAt: time.Now().String(),
+		UpdatedAt: time.Now().String(),
 	}
 }
 
