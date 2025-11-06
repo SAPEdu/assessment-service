@@ -47,7 +47,7 @@ func (r *dashboardRepository) GetTotalAssessments(ctx context.Context, tx *gorm.
 	db := r.getDB(tx)
 	var count int64
 
-	query := db.WithContext(ctx).Model(&models.Assessment{}).Where("deleted_at IS NULL")
+	query := db.WithContext(ctx).Model(&models.Assessment{})
 	query = r.applyTeacherFilter(query, teacherID, "assessments")
 
 	if err := query.Count(&count).Error; err != nil {
@@ -61,7 +61,7 @@ func (r *dashboardRepository) GetTotalQuestions(ctx context.Context, tx *gorm.DB
 	db := r.getDB(tx)
 	var count int64
 
-	query := db.WithContext(ctx).Model(&models.Question{}).Where("deleted_at IS NULL")
+	query := db.WithContext(ctx).Model(&models.Question{})
 	query = r.applyTeacherFilter(query, teacherID, "questions")
 
 	if err := query.Count(&count).Error; err != nil {
@@ -245,7 +245,7 @@ func (r *dashboardRepository) GetTrendChange(ctx context.Context, tx *gorm.DB, t
 	// Current period count
 	currentQuery := db.WithContext(ctx).Model(model)
 	if entity == "assessments" || entity == "questions" {
-		currentQuery = currentQuery.Where(tableName+".created_at >= ? AND "+tableName+".deleted_at IS NULL", currentPeriodStart)
+		currentQuery = currentQuery.Where(tableName+".created_at >= ?", currentPeriodStart)
 		currentQuery = r.applyTeacherFilter(currentQuery, teacherID, tableName)
 	} else if entity == "attempts" {
 		currentQuery = currentQuery.Where(tableName+".created_at >= ?", currentPeriodStart)
@@ -261,7 +261,7 @@ func (r *dashboardRepository) GetTrendChange(ctx context.Context, tx *gorm.DB, t
 	// Previous period count
 	previousQuery := db.WithContext(ctx).Model(model)
 	if entity == "assessments" || entity == "questions" {
-		previousQuery = previousQuery.Where(tableName+".created_at >= ? AND "+tableName+".created_at < ? AND "+tableName+".deleted_at IS NULL",
+		previousQuery = previousQuery.Where(tableName+".created_at >= ? AND "+tableName+".created_at < ?",
 			previousPeriodStart, previousPeriodEnd)
 		previousQuery = r.applyTeacherFilter(previousQuery, teacherID, tableName)
 	} else if entity == "attempts" {
@@ -520,8 +520,7 @@ func (r *dashboardRepository) GetQuestionDistribution(ctx context.Context, tx *g
 	}
 
 	query := db.WithContext(ctx).Model(&models.Question{}).
-		Select("type, COUNT(*) as count").
-		Where("deleted_at IS NULL")
+		Select("type, COUNT(*) as count")
 
 	// Filter by teacher if provided
 	if teacherID != nil && *teacherID != "" {

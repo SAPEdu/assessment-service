@@ -65,7 +65,7 @@ func (r *questionBankRepository) Update(ctx context.Context, tx *gorm.DB, bank *
 
 func (r *questionBankRepository) Delete(ctx context.Context, tx *gorm.DB, id uint) error {
 	db := r.getDB(tx)
-	if err := db.WithContext(ctx).Delete(&models.QuestionBank{}, id).Error; err != nil {
+	if err := db.WithContext(ctx).Unscoped().Delete(&models.QuestionBank{}, id).Error; err != nil {
 		return r.handleDBError(err, "delete question bank")
 	}
 	return nil

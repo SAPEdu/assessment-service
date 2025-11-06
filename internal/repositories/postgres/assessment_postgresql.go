@@ -160,7 +160,7 @@ func (a *AssessmentPostgreSQL) Update(ctx context.Context, tx *gorm.DB, assessme
 	return nil
 }
 
-// Delete soft deletes an assessment
+// Delete hard deletes an assessment
 func (a *AssessmentPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) error {
 	// Get assessment info before deleting for cache invalidation
 	var assessment models.Assessment
@@ -177,7 +177,7 @@ func (a *AssessmentPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint)
 		return fmt.Errorf("cannot delete assessment with existing attempts")
 	}
 
-	if err := tx.WithContext(ctx).Delete(&models.Assessment{}, id).Error; err != nil {
+	if err := tx.WithContext(ctx).Unscoped().Delete(&models.Assessment{}, id).Error; err != nil {
 		return fmt.Errorf("failed to delete assessment: %w", err)
 	}
 
