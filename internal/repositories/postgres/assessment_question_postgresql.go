@@ -572,12 +572,12 @@ func (aq *AssessmentQuestionPostgreSQL) GetTotalPoints(ctx context.Context, tx *
 	db := aq.getDB(tx)
 	var totalPoints int
 
-	// Use COALESCE to handle NULL points (use question default points)
+	// Use COALESCE to handle NULL points and wrap SUM to handle empty result set
 	err := db.WithContext(ctx).
 		Table("assessment_questions aq").
 		Joins("JOIN questions q ON q.id = aq.question_id").
 		Where("aq.assessment_id = ?", assessmentID).
-		Select("SUM(COALESCE(aq.points, q.points))").
+		Select("COALESCE(SUM(COALESCE(aq.points, 0)), 0)").
 		Scan(&totalPoints).Error
 
 	if err != nil {
