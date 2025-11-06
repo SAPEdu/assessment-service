@@ -63,15 +63,16 @@ type StudentAssessmentsResponse struct {
 }
 
 type StudentAssessmentItem struct {
-	ID             uint                    `json:"id"`
-	Title          string                  `json:"title"`
-	Description    *string                 `json:"description"`
-	Duration       int                     `json:"duration"`
-	PassingScore   float64                 `json:"passing_score"`
-	Status         models.AssessmentStatus `json:"status"`
-	DueDate        *time.Time              `json:"due_date"`
-	QuestionsCount int                     `json:"questions_count"`
-	TotalPoints    int                     `json:"total_points"`
+	ID             uint                      `json:"id"`
+	Title          string                    `json:"title"`
+	Description    *string                   `json:"description"`
+	Duration       int                       `json:"duration"`
+	PassingScore   float64                   `json:"passing_score"`
+	Status         models.AssessmentStatus   `json:"status"`
+	DueDate        *time.Time                `json:"due_date"`
+	QuestionsCount int                       `json:"questions_count"`
+	TotalPoints    int                       `json:"total_points"`
+	Settings       models.AssessmentSettings `json:"settings"`
 
 	// Student-specific fields
 	AttemptsUsed     int        `json:"attempts_used"`
@@ -282,7 +283,7 @@ func (s *studentService) GetStudentAssessments(ctx context.Context, studentID st
 	offset := (page - 1) * size
 
 	// Build query for active assessments
-	query := s.db.WithContext(ctx).Model(&models.Assessment{}).
+	query := s.db.WithContext(ctx).Model(&models.Assessment{}).Preload("Settings").
 		Where("status = ?", models.StatusActive)
 
 	// Filter by due date (only show non-expired)
@@ -373,6 +374,7 @@ func (s *studentService) GetStudentAssessments(ctx context.Context, studentID st
 			HasActiveAttempt: hasActive,
 			BestScore:        bestScore,
 			LastAttemptDate:  lastAttemptDate,
+			Settings:         assess.Settings,
 		})
 	}
 

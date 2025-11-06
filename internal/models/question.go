@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"gorm.io/datatypes"
-	"gorm.io/gorm"
 )
 
 type QuestionType string
@@ -45,11 +44,10 @@ type Question struct {
 	Tags       datatypes.JSON  `json:"tags" gorm:"type:jsonb"` // []string
 
 	// Metadata
-	Explanation *string        `json:"explanation" gorm:"type:text"`
-	CreatedBy   string         `json:"created_by" gorm:"not null;index;size:255"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+	Explanation *string   `json:"explanation" gorm:"type:text"`
+	CreatedBy   string    `json:"created_by" gorm:"not null;index;size:255"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
 	// Relations
 	Category    *QuestionCategory    `json:"category" gorm:"foreignKey:CategoryID"`
@@ -75,13 +73,14 @@ type AssessmentQuestion struct {
 	Required  bool `json:"required" gorm:"default:true"`
 
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Relations
 	Assessment Assessment `json:"assessment" gorm:"foreignKey:AssessmentID"`
 	Question   Question   `json:"question" gorm:"foreignKey:QuestionID"`
 
 	// Unique constraint
-	gorm.Model `gorm:"uniqueIndex:idx_assessment_question"`
+	// gorm.Model `gorm:"uniqueIndex:idx_assessment_question"`
 }
 
 type QuestionCategory struct {
@@ -97,10 +96,9 @@ type QuestionCategory struct {
 	Path     string `json:"path" gorm:"size:500"` // "/parent/child/grandchild"
 
 	// Metadata
-	CreatedBy string         `json:"created_by" gorm:"not null;index;size:255"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+	CreatedBy string    `json:"created_by" gorm:"not null;index;size:255"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Relations
 	Parent    *QuestionCategory  `json:"parent" gorm:"foreignKey:ParentID"`

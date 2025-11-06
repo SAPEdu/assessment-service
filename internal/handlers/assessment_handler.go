@@ -1145,6 +1145,7 @@ func (h *AssessmentHandler) handleServiceError(c *gin.Context, err error) {
 		h.LogError(c, err, "Unexpected service error")
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Message: "Internal server error",
+			Details: err.Error(),
 		})
 	}
 }

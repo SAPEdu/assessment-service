@@ -112,7 +112,7 @@ func (q *QuestionPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) e
 
 	err := db.Transaction(func(tx *gorm.DB) error {
 		// delete question in assessment_questions first due to foreign key constraint
-		if err := tx.WithContext(ctx).Where("question_id = ?", id).Delete(&models.AssessmentQuestion{}).Error; err != nil {
+		if err := tx.WithContext(ctx).Unscoped().Where("question_id = ?", id).Delete(&models.AssessmentQuestion{}).Error; err != nil {
 			return fmt.Errorf("failed to delete question from assessment_questions: %w", err)
 		}
 
@@ -120,8 +120,8 @@ func (q *QuestionPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) e
 		if err := tx.WithContext(ctx).Exec(queryDeleteQuestionBank, id).Error; err != nil {
 			return fmt.Errorf("failed to delete question from question_bank_questions: %w", err)
 		}
-		// delete the question
-		if err := tx.WithContext(ctx).Delete(&models.Question{}, id).Error; err != nil {
+		// delete the question (hard delete)
+		if err := tx.WithContext(ctx).Unscoped().Delete(&models.Question{}, id).Error; err != nil {
 			return fmt.Errorf("failed to delete question: %w", err)
 		}
 
@@ -183,14 +183,14 @@ func (q *QuestionPostgreSQL) GetByIDs(ctx context.Context, tx *gorm.DB, ids []ui
 	return questions, nil
 }
 
-// DeleteBatch soft deletes multiple questions
+// DeleteBatch hard deletes multiple questions
 func (q *QuestionPostgreSQL) DeleteBatch(ctx context.Context, tx *gorm.DB, ids []uint) error {
 	if len(ids) == 0 {
 		return nil
 	}
 
 	db := q.getDB(tx)
-	if err := db.WithContext(ctx).Delete(&models.Question{}, ids).Error; err != nil {
+	if err := db.WithContext(ctx).Unscoped().Delete(&models.Question{}, ids).Error; err != nil {
 		return fmt.Errorf("failed to delete questions batch: %w", err)
 	}
 
