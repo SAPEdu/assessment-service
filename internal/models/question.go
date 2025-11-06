@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 type QuestionType string
@@ -80,7 +81,7 @@ type AssessmentQuestion struct {
 	Question   Question   `json:"question" gorm:"foreignKey:QuestionID"`
 
 	// Unique constraint
-	// gorm.Model `gorm:"uniqueIndex:idx_assessment_question"`
+	gorm.Model `gorm:"uniqueIndex:idx_assessment_question"`
 }
 
 type QuestionCategory struct {
