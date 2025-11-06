@@ -413,24 +413,7 @@ func (s *gradingService) generateMultipleChoiceFeedback(questionContent json.Raw
 		return "Correct! Well done."
 	}
 
-	var content models.MultipleChoiceContent
-	if err := json.Unmarshal(questionContent, &content); err != nil {
-		return "Incorrect answer."
-	}
-
-	// Generate feedback showing correct options
-	correctOptions := make([]string, 0)
-	for correctIndex := range content.CorrectAnswers {
-		if correctIndex < len(content.Options) {
-			correctOptions = append(correctOptions, content.Options[correctIndex].Text)
-		}
-	}
-
-	if len(correctOptions) == 1 {
-		return fmt.Sprintf("Incorrect. The correct answer is: %s", correctOptions[0])
-	} else {
-		return fmt.Sprintf("Incorrect. The correct answers are: %s", strings.Join(correctOptions, ", "))
-	}
+	return "Incorrect answer. Please review the question and try again."
 }
 
 func (s *gradingService) generateTrueFalseFeedback(questionContent json.RawMessage, studentAnswer json.RawMessage, isCorrect bool) string {
