@@ -217,7 +217,7 @@ func (aq *AssessmentQuestionPostgreSQL) RemoveQuestions(ctx context.Context, tx 
 	execFunc := func(execDB *gorm.DB) error {
 		// Delete questions
 		result := execDB.WithContext(ctx).
-			Where("assessment_id = ? AND question_id IN ?", assessmentID, questionIDs).
+			Where("assessment_id = ? AND question_id IN ?", assessmentID, questionIDs).Unscoped().
 			Delete(&models.AssessmentQuestion{})
 
 		if result.Error != nil {
