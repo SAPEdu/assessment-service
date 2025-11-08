@@ -613,10 +613,10 @@ func (ar *AnswerPostgreSQL) Create(ctx context.Context, tx *gorm.DB, answer *mod
 	}
 
 	// Invalidate related caches
-	ar.cacheManager.Fast.Delete(ctx,
-		fmt.Sprintf("attempt:%d:answers", answer.AttemptID),
-		fmt.Sprintf("attempt:%d:question:%d", answer.AttemptID, answer.QuestionID),
-	)
+	//ar.cacheManager.Fast.Delete(ctx,
+	//	fmt.Sprintf("attempt:%d:answers", answer.AttemptID),
+	//	fmt.Sprintf("attempt:%d:question:%d", answer.AttemptID, answer.QuestionID),
+	//)
 
 	return nil
 }
@@ -624,21 +624,15 @@ func (ar *AnswerPostgreSQL) Create(ctx context.Context, tx *gorm.DB, answer *mod
 // GetByID retrieves an answer by ID with caching
 func (ar *AnswerPostgreSQL) GetByID(ctx context.Context, tx *gorm.DB, id uint) (*models.StudentAnswer, error) {
 	db := ar.getDB(tx)
-	cacheKey := fmt.Sprintf("answer:id:%d", id)
-	var answer models.StudentAnswer
 
-	err := ar.cacheManager.Fast.CacheOrExecute(ctx, cacheKey, &answer, cache.FastCacheConfig.TTL, func() (interface{}, error) {
-		var dbAnswer models.StudentAnswer
-		if err := db.WithContext(ctx).First(&dbAnswer, id).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, fmt.Errorf("answer not found with ID %d", id)
-			}
-			return nil, fmt.Errorf("failed to get answer: %w", err)
+	var dbAnswer models.StudentAnswer
+	if err := db.WithContext(ctx).First(&dbAnswer, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("answer not found with ID %d", id)
 		}
-		return &dbAnswer, nil
-	})
-
-	return &answer, err
+		return nil, fmt.Errorf("failed to get answer: %w", err)
+	}
+	return &dbAnswer, nil
 }
 
 // GetByIDWithDetails retrieves an answer by ID with related data
@@ -685,11 +679,11 @@ func (ar *AnswerPostgreSQL) Update(ctx context.Context, tx *gorm.DB, answer *mod
 	}
 
 	// Invalidate caches
-	ar.cacheManager.Fast.Delete(ctx,
-		fmt.Sprintf("answer:id:%d", answer.ID),
-		fmt.Sprintf("attempt:%d:answers", answer.AttemptID),
-		fmt.Sprintf("attempt:%d:question:%d", answer.AttemptID, answer.QuestionID),
-	)
+	//ar.cacheManager.Fast.Delete(ctx,
+	//	fmt.Sprintf("answer:id:%d", answer.ID),
+	//	fmt.Sprintf("attempt:%d:answers", answer.AttemptID),
+	//	fmt.Sprintf("attempt:%d:question:%d", answer.AttemptID, answer.QuestionID),
+	//)
 
 	return nil
 }
@@ -698,21 +692,21 @@ func (ar *AnswerPostgreSQL) Update(ctx context.Context, tx *gorm.DB, answer *mod
 func (ar *AnswerPostgreSQL) Delete(ctx context.Context, tx *gorm.DB, id uint) error {
 	db := ar.getDB(tx)
 	// Get answer first to invalidate caches
-	answer, err := ar.GetByID(ctx, tx, id)
-	if err != nil {
-		return err
-	}
+	//answer, err := ar.GetByID(ctx, tx, id)
+	//if err != nil {
+	//	return err
+	//}
 
 	if err := db.WithContext(ctx).Delete(&models.StudentAnswer{}, id).Error; err != nil {
 		return fmt.Errorf("failed to delete answer: %w", err)
 	}
 
 	// Invalidate caches
-	ar.cacheManager.Fast.Delete(ctx,
-		fmt.Sprintf("answer:id:%d", id),
-		fmt.Sprintf("attempt:%d:answers", answer.AttemptID),
-		fmt.Sprintf("attempt:%d:question:%d", answer.AttemptID, answer.QuestionID),
-	)
+	//ar.cacheManager.Fast.Delete(ctx,
+	//	fmt.Sprintf("answer:id:%d", id),
+	//	fmt.Sprintf("attempt:%d:answers", answer.AttemptID),
+	//	fmt.Sprintf("attempt:%d:question:%d", answer.AttemptID, answer.QuestionID),
+	//)
 
 	return nil
 }
@@ -737,9 +731,9 @@ func (ar *AnswerPostgreSQL) CreateBatch(ctx context.Context, tx *gorm.DB, answer
 			attemptIDs[answer.AttemptID] = true
 		}
 
-		for attemptID := range attemptIDs {
-			ar.cacheManager.Fast.InvalidatePattern(ctx, fmt.Sprintf("attempt:%d:*", attemptID))
-		}
+		//for attemptID := range attemptIDs {
+		//	ar.cacheManager.Fast.InvalidatePattern(ctx, fmt.Sprintf("attempt:%d:*", attemptID))
+		//}
 
 		return nil
 	})
@@ -775,14 +769,14 @@ func (ar *AnswerPostgreSQL) UpdateBatch(ctx context.Context, tx *gorm.DB, answer
 		}
 
 		// Invalidate caches
-		attemptIDs := make(map[uint]bool)
-		for _, answer := range answers {
-			ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", answer.ID))
-			attemptIDs[answer.AttemptID] = true
-		}
-		for attemptID := range attemptIDs {
-			ar.cacheManager.Fast.InvalidatePattern(ctx, fmt.Sprintf("attempt:%d:*", attemptID))
-		}
+		//attemptIDs := make(map[uint]bool)
+		//for _, answer := range answers {
+		//	ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", answer.ID))
+		//	attemptIDs[answer.AttemptID] = true
+		//}
+		//for attemptID := range attemptIDs {
+		//	ar.cacheManager.Fast.InvalidatePattern(ctx, fmt.Sprintf("attempt:%d:*", attemptID))
+		//}
 
 		return nil
 	})
@@ -811,48 +805,32 @@ func (ar *AnswerPostgreSQL) UpsertAnswer(ctx context.Context, tx *gorm.DB, answe
 // GetByAttempt retrieves all answers for an attempt with caching
 func (ar *AnswerPostgreSQL) GetByAttempt(ctx context.Context, tx *gorm.DB, attemptID uint) ([]*models.StudentAnswer, error) {
 	db := ar.getDB(tx)
-	cacheKey := fmt.Sprintf("attempt:%d:answers", attemptID)
-	var answers []*models.StudentAnswer
 
-	err := ar.cacheManager.Fast.CacheOrExecute(ctx, cacheKey, &answers, cache.FastCacheConfig.TTL, func() (interface{}, error) {
-		var dbAnswers []*models.StudentAnswer
-		if err := db.WithContext(ctx).
-			Where("attempt_id = ?", attemptID).
-			Order("question_id ASC").
-			Preload("Question").
-			Find(&dbAnswers).Error; err != nil {
-			return nil, fmt.Errorf("failed to get answers by attempt: %w", err)
-		}
-		return dbAnswers, nil
-	})
-
-	return answers, err
+	var dbAnswers []*models.StudentAnswer
+	if err := db.WithContext(ctx).
+		Where("attempt_id = ?", attemptID).
+		Order("question_id ASC").
+		Preload("Question").
+		Find(&dbAnswers).Error; err != nil {
+		return nil, fmt.Errorf("failed to get answers by attempt: %w", err)
+	}
+	return dbAnswers, nil
 }
 
 // GetByAttemptAndQuestion retrieves a specific answer for an attempt and question
 func (ar *AnswerPostgreSQL) GetByAttemptAndQuestion(ctx context.Context, tx *gorm.DB, attemptID, questionID uint) (*models.StudentAnswer, error) {
 	db := ar.getDB(tx)
-	cacheKey := fmt.Sprintf("attempt:%d:question:%d", attemptID, questionID)
-	var answer models.StudentAnswer
-
-	err := ar.cacheManager.Fast.CacheOrExecute(ctx, cacheKey, &answer, cache.FastCacheConfig.TTL, func() (interface{}, error) {
-		var dbAnswer models.StudentAnswer
-		if err := db.WithContext(ctx).
-			Where("attempt_id = ? AND question_id = ?", attemptID, questionID).
-			First(&dbAnswer).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, gorm.ErrRecordNotFound
-			}
-			return nil, fmt.Errorf("failed to get answer: %w", err)
+	var dbAnswer models.StudentAnswer
+	if err := db.WithContext(ctx).
+		Where("attempt_id = ? AND question_id = ?", attemptID, questionID).
+		First(&dbAnswer).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, gorm.ErrRecordNotFound
 		}
-		return &dbAnswer, nil
-	})
-
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, gorm.ErrRecordNotFound
+		return nil, fmt.Errorf("failed to get answer: %w", err)
 	}
 
-	return &answer, err
+	return &dbAnswer, nil
 }
 
 // GetByQuestion retrieves answers for a specific question
@@ -912,7 +890,7 @@ func (ar *AnswerPostgreSQL) UpdateGrade(ctx context.Context, tx *gorm.DB, id uin
 	}
 
 	// Invalidate cache
-	ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", id))
+	//ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", id))
 
 	return nil
 }
@@ -945,7 +923,7 @@ func (ar *AnswerPostgreSQL) BulkGrade(ctx context.Context, tx *gorm.DB, grades [
 			}
 
 			// Invalidate cache
-			ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", grade.ID))
+			// ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", grade.ID))
 		}
 
 		return nil
@@ -1012,7 +990,7 @@ func (ar *AnswerPostgreSQL) UpdateAnswerHistory(ctx context.Context, tx *gorm.DB
 	}
 
 	// Invalidate cache
-	ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", id))
+	// ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", id))
 
 	return nil
 }
@@ -1035,7 +1013,7 @@ func (ar *AnswerPostgreSQL) FlagAnswer(ctx context.Context, tx *gorm.DB, id uint
 	}
 
 	// Invalidate cache
-	ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", id))
+	// ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", id))
 
 	return nil
 }
@@ -1066,7 +1044,7 @@ func (ar *AnswerPostgreSQL) UpdateTimeSpent(ctx context.Context, tx *gorm.DB, id
 	}
 
 	// Invalidate cache
-	ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", id))
+	// ar.cacheManager.Fast.Delete(ctx, fmt.Sprintf("answer:id:%d", id))
 
 	return nil
 }
@@ -1305,12 +1283,6 @@ func (ar *AnswerPostgreSQL) GetGradingStats(ctx context.Context, tx *gorm.DB, as
 // HasAnswer checks if an answer exists for an attempt and question
 func (ar *AnswerPostgreSQL) HasAnswer(ctx context.Context, tx *gorm.DB, attemptID, questionID uint) (bool, error) {
 	db := ar.getDB(tx)
-	cacheKey := fmt.Sprintf("has:attempt:%d:question:%d", attemptID, questionID)
-
-	exists, err := ar.cacheManager.Exists.GetString(ctx, cacheKey)
-	if err == nil {
-		return exists == "true", nil
-	}
 
 	var count int64
 	if err := db.WithContext(ctx).
@@ -1322,7 +1294,7 @@ func (ar *AnswerPostgreSQL) HasAnswer(ctx context.Context, tx *gorm.DB, attemptI
 
 	hasAnswer := count > 0
 	// Cache with short TTL
-	ar.cacheManager.Exists.SetString(ctx, cacheKey, fmt.Sprintf("%t", hasAnswer), cache.ExistsCacheConfig.TTL)
+	// ar.cacheManager.Exists.SetString(ctx, cacheKey, fmt.Sprintf("%t", hasAnswer), cache.ExistsCacheConfig.TTL)
 
 	return hasAnswer, nil
 }
