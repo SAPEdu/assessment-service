@@ -35,18 +35,13 @@ func (a *AttemptPostgreSQL) Create(ctx context.Context, tx *gorm.DB, attempt *mo
 func (a *AttemptPostgreSQL) GetByID(ctx context.Context, tx *gorm.DB, id uint) (*models.AssessmentAttempt, error) {
 	db := a.getDB(tx)
 	// Cache active attempts for performance
-	cacheKey := fmt.Sprintf("id:%d", id)
-	var attempt models.AssessmentAttempt
+	//cacheKey := fmt.Sprintf("id:%d", id)
 
-	err := a.cacheManager.Fast.CacheOrExecute(ctx, cacheKey, &attempt, cache.FastCacheConfig.TTL, func() (interface{}, error) {
-		var dbAttempt models.AssessmentAttempt
-		if err := db.WithContext(ctx).First(&dbAttempt, id).Error; err != nil {
-			return nil, fmt.Errorf("failed to get attempt: %w", err)
-		}
-		return &dbAttempt, nil
-	})
-
-	return &attempt, err
+	var dbAttempt models.AssessmentAttempt
+	if err := db.WithContext(ctx).First(&dbAttempt, id).Error; err != nil {
+		return nil, fmt.Errorf("failed to get attempt: %w", err)
+	}
+	return &dbAttempt, nil
 }
 
 func (a *AttemptPostgreSQL) GetByIDWithDetails(ctx context.Context, tx *gorm.DB, id uint) (*models.AssessmentAttempt, error) {
