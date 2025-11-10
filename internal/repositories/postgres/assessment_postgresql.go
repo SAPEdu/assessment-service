@@ -55,6 +55,7 @@ func (a *AssessmentPostgreSQL) GetByID(ctx context.Context, tx *gorm.DB, id uint
 		var dbAssessment models.Assessment
 		err := tx.WithContext(ctx).
 			Preload("Creator").
+			Preload("Settings").
 			First(&dbAssessment, id).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to get assessment: %w", err)
